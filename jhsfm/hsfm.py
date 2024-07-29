@@ -1,0 +1,138 @@
+import jax.numpy as jnp
+from jax import jit, vmap
+import numpy as np
+
+@jit
+def wrap_angle(theta:jnp.float32) -> jnp.float32:
+    """
+    This function wraps the angle to the interval [-pi, pi]
+    
+    args:
+    - theta: angle to be wrapped
+    
+    output:
+    - wrapped_theta: angle wrapped to the interval [-pi, pi]
+    """
+    wrapped_theta = (theta + jnp.pi) % (2 * jnp.pi) - jnp.pi
+    return wrapped_theta
+
+@jit
+def get_linear_velocity(theta:jnp.float32, body_velocity: jnp.ndarray) -> jnp.ndarray:
+    """
+    This function computes the linear velocity of the agent in the world frame
+    
+    args:
+    - theta: angle of the agent in the world frame
+    - body_velocity: velocity of the agent in its body frame
+    
+    output: 
+    - linear_velocity: velocity of the agent in the world frame
+    """
+    rotational_matrix = jnp.array([[jnp.cos(theta), -jnp.sin(theta)], [jnp.sin(theta), jnp.cos(theta)]])
+    linear_velocity = jnp.matmul(rotational_matrix, body_velocity)
+    return linear_velocity
+
+@jit
+def full_update(humans_state:jnp.ndarray, humans_goal:jnp.ndarray, parameters:jnp.ndarray, dt:jnp.float32) -> jnp.ndarray:
+    """
+    This functions makes a step in time (of length dt) for the humans' state using the Headed Social Force Model (HSFM) with 
+    global force guidance for torque and sliding component on the repulsive forces.
+
+    args:
+    - humans_state: shape is (n_humans, 6) where each row is (px, py, bvx, bvy, theta, omega)
+    - humans_goal: shape is (n_humans, 2) where each row is (gx, gy)
+    - parameters: shape is (n_humans, 19) where each row is (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, ko, kd, alpha, k_lambda, safety_space)
+    - dt: sampling time for the update
+    
+    output:
+    - updated_humans_state: shape is (n_humans, 6) where each row is (px, py, bvx, bvy, theta, omega)
+    """
+    stacked_states = jnp.copy(humans_state)
+    for i in range(len(humans_state)-1): stacked_states = jnp.concatenate((stacked_states, humans_state), axis=0)
+    idxs = jnp.arange(len(humans_state))
+    dts = jnp.ones((len(humans_state),)) * dt
+    updated_humans_state = single_update(idxs, humans_state, humans_goal, parameters, dts)
+    return updated_humans_state
+
+@vmap
+def single_update(idx:jnp.int32, humans_state:jnp.ndarray, human_goal:jnp.ndarray, parameters:jnp.ndarray, dt:jnp.float32) -> jnp.ndarray:
+    """
+    This functions makes a step in time (of length dt) for a single human using the Headed Social Force Model (HSFM) with 
+    global force guidance for torque and sliding component on the repulsive forces.
+
+    args:
+    - idx: human index in the state, goal and parameter vectors
+    - humans_state: shape is (n_humans, 6) in the form is (px, py, bvx, bvy, theta, omega)
+    - humans_goal: shape is (n_humans, 2) in the form (gx, gy)
+    - parameters: shape is (n_humans, 19) in the form (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, ko, kd, alpha, k_lambda, safety_space)
+    - dt: sampling time for the update
+    
+    output:
+    - updated_human_state: shape is (6,) in the form (px, py, bvx, bvy, theta, omega)
+    """
+    self_state = humans_state[idx]
+    self_parameters = parameters[idx]
+    other_humans_state = jnp.delete(np.copy(humans_state), idx, axis=0)
+    other_humans_parameters = jnp.delete(np.copy(parameters), idx, axis=0)
+    # Desired force computation
+    linear_velocity = get_linear_velocity(self_state[4], self_state[2:4])
+    diff = human_goal[idx] - self_state[:2]
+    dist = jnp.linalg.norm(diff)
+    desired_force =  jnp.max(0, (dist-self_parameters[0])/dist-self_parameters[0]) * (self_parameters[1] * (((diff / dist) * self_parameters[2]) - linear_velocity) / self_parameters[3]) # The max at the beginning is needed to avoid using control flow
+    # Social force computation
+    stacked_self_state = jnp.copy(self_state)
+    stacked_parameters = jnp.copy(self_parameters)
+    for i in range(len(other_humans_state) - 1): 
+        stacked_self_state = jnp.concatenate((stacked_self_state, self_state), axis=0)
+        stacked_parameters = jnp.concatenate((stacked_parameters, self_parameters), axis=0)
+    social_forces = pairwise_social_force(self_state, other_humans_state, stacked_parameters, other_humans_parameters)
+    social_force = jnp.sum(social_forces, axis=0)
+    # Torque computation
+    input_force = desired_force + social_force
+    input_force_norm = jnp.linalg.norm(input_force)
+    input_force_angle = jnp.arctan2(input_force[1], input_force[0])
+    inertia = (self_parameters[1] * (self_parameters[0] ** 2)) / 2
+    k_theta = inertia * self_parameters[17] * input_force_norm
+    k_omega = inertia * (1 + self_parameters[16]) * jnp.sqrt((self_parameters[17] * input_force_norm) / self_parameters[16])
+    torque = - k_theta * wrap_angle(self_state[4] - input_force_angle) - k_omega * self_state[5]
+    # Global force computation
+    global_force = jnp.zeros((2,))
+    global_force.at[0].set(jnp.dot(input_force, jnp.array([jnp.cos(self_state[4]), jnp.sin(self_state[4])])))
+    global_force.at[1].set(self_parameters[14] * jnp.dot(social_force, jnp.array([-jnp.sin(self_state[4]), jnp.cos(self_state[4])])) - self_parameters[15] * self_state[5])
+    # Update
+    updated_human_state = jnp.zeros((6,))
+    updated_human_state.at[0].set(self_state[0] + dt * self_state[2])
+    updated_human_state.at[1].set(self_state[1] + dt * self_state[3])
+    updated_human_state.at[4].set(wrap_angle(self_state[4] + dt * self_state[5]))
+    updated_human_state.at[2].set(self_state[2] + dt * (global_force[0] / self_parameters[1]))
+    updated_human_state.at[3].set(self_state[3] + dt * (global_force[1] / self_parameters[1]))
+    updated_human_state.at[5].set(self_state[5] + dt * (torque / inertia))
+    return updated_human_state
+
+@vmap
+def pairwise_social_force(human_state:jnp.ndarray, other_human_state:jnp.ndarray, parameters:jnp.ndarray, other_human_parameters:jnp.ndarray):
+    """
+    This function computes the social force between a pair of humans
+
+    args:
+    - human_state: shape is (6,) in the form (px, py, bvx, bvy, theta, omega)
+    - other_humans_state: shape is (6,) in the form (px, py, bvx, bvy, theta, omega)
+    - parameters: shape is (19,) in the form (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, k0, kd, alpha, k_lambda, safety_space)
+    - other_humans_parameters: shape is (19,) in the form (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, k0, kd, alpha, k_lambda, safety_space)
+
+    output:
+    - social_force: shape is (2,) in the form (fx, fy)
+    """
+    rij = parameters[0] + other_human_parameters[0] + parameters[18] + other_human_parameters[18]
+    diff = human_state[:2] - other_human_state[:2]
+    dist = jnp.linalg.norm(diff)
+    nij = diff / dist
+    real_dist = rij - dist
+    tij = jnp.array([-nij[1], nij[0]])
+    human_linear_velocity = get_linear_velocity(human_state[4], human_state[2:4])
+    other_human_linear_velocity = get_linear_velocity(other_human_state[4], other_human_state[2:4])
+    delta_vij = jnp.dot(other_human_linear_velocity[2:4] - human_linear_velocity[2:4], tij)
+    pairwise_social_force = (parameters[4] * jnp.exp(real_dist / parameters[6]) + parameters[12] * jnp.max(0., real_dist)) * nij + (parameters[8] * jnp.exp(real_dist / parameters[10]) + parameters[13] * jnp.max(0., real_dist) * delta_vij) * tij
+    return pairwise_social_force
+
+
