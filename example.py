@@ -51,5 +51,7 @@ humans_goal = jnp.array(humans_goal)
 # Simulation
 all_states = []
 for i in range(steps):
-    humans_state = update(humans_state, humans_goal, humans_parameters, dt)
     all_states.append(humans_state)
+    humans_state = update(humans_state, humans_goal, humans_parameters, dt)
+
+print(all_states[0], all_states[1])

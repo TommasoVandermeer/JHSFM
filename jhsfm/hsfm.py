@@ -1,5 +1,5 @@
 import jax.numpy as jnp
-from jax import jit, vmap
+from jax import jit, vmap, lax
 import numpy as np
 
 @jit
@@ -47,11 +47,11 @@ def full_update(humans_state:jnp.ndarray, humans_goal:jnp.ndarray, parameters:jn
     output:
     - updated_humans_state: shape is (n_humans, 6) where each row is (px, py, bvx, bvy, theta, omega)
     """
-    stacked_states = jnp.copy(humans_state)
-    for i in range(len(humans_state)-1): stacked_states = jnp.concatenate((stacked_states, humans_state), axis=0)
+    stacked_states = jnp.stack([humans_state for _ in range(len(humans_state))], axis=0)
+    stacked_parameters = jnp.stack([parameters for _ in range(len(humans_state))], axis=0)
     idxs = jnp.arange(len(humans_state))
     dts = jnp.ones((len(humans_state),)) * dt
-    updated_humans_state = single_update(idxs, humans_state, humans_goal, parameters, dts)
+    updated_humans_state = single_update(idxs, stacked_states, humans_goal, stacked_parameters, dts)
     return updated_humans_state
 
 @vmap
@@ -72,21 +72,13 @@ def single_update(idx:jnp.int32, humans_state:jnp.ndarray, human_goal:jnp.ndarra
     """
     self_state = humans_state[idx]
     self_parameters = parameters[idx]
-    other_humans_state = jnp.delete(np.copy(humans_state), idx, axis=0)
-    other_humans_parameters = jnp.delete(np.copy(parameters), idx, axis=0)
     # Desired force computation
     linear_velocity = get_linear_velocity(self_state[4], self_state[2:4])
     diff = human_goal[idx] - self_state[:2]
     dist = jnp.linalg.norm(diff)
-    desired_force =  jnp.max(0, (dist-self_parameters[0])/dist-self_parameters[0]) * (self_parameters[1] * (((diff / dist) * self_parameters[2]) - linear_velocity) / self_parameters[3]) # The max at the beginning is needed to avoid using control flow
+    desired_force =  lax.cond(dist > self_parameters[0] ,lambda x: x * (self_parameters[1] * (((diff / dist) * self_parameters[2]) - linear_velocity) / self_parameters[3]),lambda x: x * 0,jnp.ones((2,))) # The max at the beginning is needed to avoid using control flow
     # Social force computation
-    stacked_self_state = jnp.copy(self_state)
-    stacked_parameters = jnp.copy(self_parameters)
-    for i in range(len(other_humans_state) - 1): 
-        stacked_self_state = jnp.concatenate((stacked_self_state, self_state), axis=0)
-        stacked_parameters = jnp.concatenate((stacked_parameters, self_parameters), axis=0)
-    social_forces = pairwise_social_force(self_state, other_humans_state, stacked_parameters, other_humans_parameters)
-    social_force = jnp.sum(social_forces, axis=0)
+    social_force = lax.fori_loop(0, len(humans_state), lambda j, acc: lax.cond(j != idx, lambda acc: acc + pairwise_social_force(self_state, humans_state[j], self_parameters, parameters[j]), lambda acc: acc, acc), jnp.zeros((2,)))
     # Torque computation
     input_force = desired_force + social_force
     input_force_norm = jnp.linalg.norm(input_force)
@@ -109,7 +101,7 @@ def single_update(idx:jnp.int32, humans_state:jnp.ndarray, human_goal:jnp.ndarra
     updated_human_state.at[5].set(self_state[5] + dt * (torque / inertia))
     return updated_human_state
 
-@vmap
+@jit
 def pairwise_social_force(human_state:jnp.ndarray, other_human_state:jnp.ndarray, parameters:jnp.ndarray, other_human_parameters:jnp.ndarray):
     """
     This function computes the social force between a pair of humans
@@ -131,8 +123,8 @@ def pairwise_social_force(human_state:jnp.ndarray, other_human_state:jnp.ndarray
     tij = jnp.array([-nij[1], nij[0]])
     human_linear_velocity = get_linear_velocity(human_state[4], human_state[2:4])
     other_human_linear_velocity = get_linear_velocity(other_human_state[4], other_human_state[2:4])
-    delta_vij = jnp.dot(other_human_linear_velocity[2:4] - human_linear_velocity[2:4], tij)
-    pairwise_social_force = (parameters[4] * jnp.exp(real_dist / parameters[6]) + parameters[12] * jnp.max(0., real_dist)) * nij + (parameters[8] * jnp.exp(real_dist / parameters[10]) + parameters[13] * jnp.max(0., real_dist) * delta_vij) * tij
+    delta_vij = jnp.dot(other_human_linear_velocity - human_linear_velocity, tij)
+    pairwise_social_force = lax.cond(real_dist > 0, lambda x: x * (parameters[4] * jnp.exp(real_dist / parameters[6]) + parameters[12] * real_dist) * nij + (parameters[8] * jnp.exp(real_dist / parameters[10]) + parameters[13] * real_dist * delta_vij) * tij, lambda x: x * (parameters[4] * jnp.exp(real_dist / parameters[6])) * nij + (parameters[8] * jnp.exp(real_dist / parameters[10])) * tij, jnp.ones((2,)))
     return pairwise_social_force
 
 
