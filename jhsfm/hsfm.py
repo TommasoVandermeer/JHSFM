@@ -33,7 +33,33 @@ def get_linear_velocity(theta:jnp.float32, body_velocity: jnp.ndarray) -> jnp.nd
     return linear_velocity
 
 @jit
-def full_update(humans_state:jnp.ndarray, humans_goal:jnp.ndarray, parameters:jnp.ndarray, dt:jnp.float32) -> jnp.ndarray:
+def compute_closest_point_to_the_edge(obs_idx:jnp.int32, reference_point:jnp.ndarray, edge:jnp.ndarray, current_closest_point:jnp.ndarray, current_min_distance:jnp.ndarray) -> jnp.ndarray:
+    """
+    This function computes the closest point of the edge to the reference point and confronts it with the current closest point and min dist to the obstacle.
+    Finally it overweites the closest point and the min distance to the obstacle in the current ones.
+    
+    args:
+    - obs_idx: index of the obstacle
+    - reference_point: shape is (2,) in the form (px, py)
+    - edge: shape is (2, 2) where each edge includes its two vertices (p1, p2) composed by two coordinates (x, y)
+    - current_closest_point: shape is (2,) in the form (cx, cy)
+    - current_min_distance: min distances to the current closest point
+
+    output:
+    - None
+    """
+    a = edge[0]
+    b = edge[1]
+    t = (jnp.dot(reference_point - a, b - a)) / (jnp.linalg.norm(b - a) ** 2)
+    t_lb = lax.cond(t>0,lambda x: x,lambda x: 0.,t)
+    t_star = lax.cond(t_lb<1,lambda x: x,lambda x: 1.,t_lb)
+    h = a + t_star * (b - a)
+    dist = jnp.linalg.norm(h - reference_point)
+    current_closest_point = current_closest_point.at[obs_idx,:].set((dist < current_min_distance[obs_idx], lambda x: h, lambda x: x, current_closest_point[obs_idx]))
+    current_min_distance = current_min_distance.at[obs_idx].set(lax.cond(dist < current_min_distance[obs_idx], lambda x: dist, lambda x: x, current_min_distance[obs_idx]))
+
+@jit
+def full_update(humans_state:jnp.ndarray, humans_goal:jnp.ndarray, parameters:jnp.ndarray, obstacles:jnp.ndarray, dt:jnp.float32) -> jnp.ndarray:
     """
     This functions makes a step in time (of length dt) for the humans' state using the Headed Social Force Model (HSFM) with 
     global force guidance for torque and sliding component on the repulsive forces.
@@ -42,6 +68,7 @@ def full_update(humans_state:jnp.ndarray, humans_goal:jnp.ndarray, parameters:jn
     - humans_state: shape is (n_humans, 6) where each row is (px, py, bvx, bvy, theta, omega)
     - humans_goal: shape is (n_humans, 2) where each row is (gx, gy)
     - parameters: shape is (n_humans, 19) where each row is (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, ko, kd, alpha, k_lambda, safety_space)
+    - obstacles: shape is (n_obstacles, n_edges, 2, 2) where each obs contains one of its edges (min. 3 edges) and each edge includes its two vertices (p1, p2) composed by two coordinates (x, y)
     - dt: sampling time for the update
     
     output:
@@ -49,13 +76,14 @@ def full_update(humans_state:jnp.ndarray, humans_goal:jnp.ndarray, parameters:jn
     """
     stacked_states = jnp.stack([humans_state for _ in range(len(humans_state))], axis=0)
     stacked_parameters = jnp.stack([parameters for _ in range(len(humans_state))], axis=0)
+    stacked_obstacles = jnp.stack([obstacles for _ in range(len(humans_state))], axis=0)
     idxs = jnp.arange(len(humans_state))
     dts = jnp.ones((len(humans_state),)) * dt
-    updated_humans_state = single_update(idxs, stacked_states, humans_goal, stacked_parameters, dts)
+    updated_humans_state = single_update(idxs, stacked_states, humans_goal, stacked_parameters, stacked_obstacles, dts)
     return updated_humans_state
 
 @vmap
-def single_update(idx:jnp.int32, humans_state:jnp.ndarray, human_goal:jnp.ndarray, parameters:jnp.ndarray, dt:jnp.float32) -> jnp.ndarray:
+def single_update(idx:jnp.int32, humans_state:jnp.ndarray, human_goal:jnp.ndarray, parameters:jnp.ndarray, obstacles:jnp.ndarray, dt:jnp.float32) -> jnp.ndarray:
     """
     This functions makes a step in time (of length dt) for a single human using the Headed Social Force Model (HSFM) with 
     global force guidance for torque and sliding component on the repulsive forces.
@@ -65,6 +93,7 @@ def single_update(idx:jnp.int32, humans_state:jnp.ndarray, human_goal:jnp.ndarra
     - humans_state: shape is (n_humans, 6) in the form is (px, py, bvx, bvy, theta, omega)
     - humans_goal: shape is (2,) in the form (gx, gy)
     - parameters: shape is (n_humans, 19) in the form (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, ko, kd, alpha, k_lambda, safety_space)
+    - obstacles: shape is (n_obstacles, n_edges, 2, 2) where each obs contains one of its edges (min. 3 edges) and each edge includes its two vertices (p1, p2) composed by two coordinates (x, y)
     - dt: sampling time for the update
     
     output:
@@ -79,8 +108,23 @@ def single_update(idx:jnp.int32, humans_state:jnp.ndarray, human_goal:jnp.ndarra
     desired_force =  lax.cond(dist > self_parameters[0],lambda x: x * (self_parameters[1] * (((diff / dist) * self_parameters[2]) - linear_velocity) / self_parameters[3]),lambda x: x * 0,jnp.ones((2,)))
     # Social force computation
     social_force = lax.fori_loop(0, len(humans_state), lambda j, acc: lax.cond(j != idx, lambda acc: acc + pairwise_social_force(self_state, humans_state[j], self_parameters, parameters[j]), lambda acc: acc, acc), jnp.zeros((2,)))
+    # Obstacle force computation
+    closest_points = jnp.zeros((len(obstacles), 2))
+    min_distances = jnp.ones((len(obstacles),)) * 10000
+    for i, o in enumerate(obstacles):
+        for edge in o:
+            a = edge[0]
+            b = edge[1]
+            t = (jnp.dot(self_state[0:2] - a, b -a)) / (jnp.linalg.norm(b - a) ** 2)
+            t_lb = lax.cond(t>0,lambda x: x,lambda x: 0.,t)
+            t_star = lax.cond(t_lb<1,lambda x: x,lambda x: 1.,t_lb)
+            h = a + t_star * (b - a)
+            dist = jnp.linalg.norm(h - self_state[0:2])
+            closest_points = closest_points.at[i,:].set(lax.cond(dist < min_distances[i], lambda x: h, lambda x: x, closest_points[i]))
+            min_distances = min_distances.at[i].set(lax.cond(dist < min_distances[i], lambda x: dist, lambda x: x, min_distances[i]))
+    obstacle_force = jnp.zeros((2,))
     # Torque computation
-    input_force = desired_force + social_force
+    input_force = desired_force + social_force + obstacle_force
     input_force_norm = jnp.linalg.norm(input_force)
     input_force_angle = jnp.arctan2(input_force[1], input_force[0])
     inertia = (self_parameters[1] * self_parameters[0] * self_parameters[0]) / 2
@@ -90,7 +134,7 @@ def single_update(idx:jnp.int32, humans_state:jnp.ndarray, human_goal:jnp.ndarra
     # Global force computation
     global_force = jnp.zeros((2,))
     global_force = global_force.at[0].set(jnp.dot(input_force, jnp.array([jnp.cos(self_state[4]), jnp.sin(self_state[4])])))
-    global_force = global_force.at[1].set(self_parameters[14] * jnp.dot(social_force, jnp.array([-jnp.sin(self_state[4]), jnp.cos(self_state[4])])) - self_parameters[15] * self_state[3])
+    global_force = global_force.at[1].set(self_parameters[14] * jnp.dot(social_force + obstacle_force, jnp.array([-jnp.sin(self_state[4]), jnp.cos(self_state[4])])) - self_parameters[15] * self_state[3])
     # Update
     updated_human_state = jnp.zeros((6,))
     updated_human_state = updated_human_state.at[0].set(self_state[0] + dt * linear_velocity[0])
@@ -101,10 +145,13 @@ def single_update(idx:jnp.int32, humans_state:jnp.ndarray, human_goal:jnp.ndarra
     updated_human_state = updated_human_state.at[5].set(self_state[5] + dt * (torque / inertia))
     # DEBUGGING
     # debug.print("\n")
+    # debug.print("jax.debug.print(closest_points) -> {x}", x=closest_points)
+    # debug.print("jax.debug.print(min_distances) -> {x}", x=min_distances)
     # debug.print("jax.debug.print(torque) -> {x}", x=torque)
     # debug.print("jax.debug.print(input_force) -> {x}", x=input_force)
     # debug.print("jax.debug.print(desired_force) -> {x}", x=desired_force)
     # debug.print("jax.debug.print(social_force) -> {x}", x=social_force)
+    # debug.print("jax.debug.print(obstacle_force) -> {x}", x=obstacle_force)
     # debug.print("jax.debug.print(global_force) -> {x}", x=global_force)
     # debug.print("jax.debug.print(updated_human_state) -> {x}", x=updated_human_state)
     return updated_human_state
