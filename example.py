@@ -1,12 +1,17 @@
 from jax import numpy as jnp
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import time
 from jhsfm.hsfm import full_update as update
 
+COLORS = list(mcolors.TABLEAU_COLORS.values())
+
 # Hyperparameters
-n_humans = 5
-circle_radius = 5
+n_humans = 15
+circle_radius = 7
 dt = 0.01
-steps = 100
+steps = 1000
 
 # Initialize conditions
 humans_state = np.zeros((n_humans, 6))
@@ -49,9 +54,28 @@ humans_parameters = jnp.array(humans_parameters)
 humans_goal = jnp.array(humans_goal)
 
 # Simulation
-all_states = []
+print("Starting simulation...\n")
+start_time = time.time()
+all_states = np.empty((steps+1, n_humans, 6), np.float32)
+all_states[0] = humans_state
 for i in range(steps):
-    all_states.append(humans_state)
     humans_state = update(humans_state, humans_goal, humans_parameters, dt)
+    all_states[i+1] = humans_state
+end_time = time.time()
+print("Simulation done! Total time: ", end_time - start_time)
 
-print(all_states[0], all_states[1])
+# Plot
+figure, ax = plt.subplots()
+ax.axis('equal')
+ax.set(xlabel='X',ylabel='Y',xlim=[-circle_radius-1,circle_radius+1],ylim=[-circle_radius-1,circle_radius+1])
+for h in range(n_humans): 
+    ax.plot(all_states[:,h,0], all_states[:,h,1], color=COLORS[h%len(COLORS)], linewidth=0.5, zorder=0)
+    ax.scatter(humans_goal[h,0], humans_goal[h,1], marker="*", color=COLORS[h%len(COLORS)], zorder=2)
+    for k in range(0,steps+1,300):
+        head = plt.Circle((all_states[k,h,0] + np.cos(all_states[k,h,4]) * humans_parameters[h,0], all_states[k,h,1] + np.sin(all_states[k,h,4]) * humans_parameters[h,0]), 0.1, color=COLORS[h%len(COLORS)], zorder=1)
+        ax.add_patch(head)
+        circle = plt.Circle((all_states[k,h,0],all_states[k,h,1]),humans_parameters[h,0], edgecolor=COLORS[h%len(COLORS)], facecolor="white", fill=True, zorder=1)
+        ax.add_patch(circle)
+        num = int(k*dt) if (k*dt).is_integer() else (k*dt)
+        ax.text(all_states[k,h,0],all_states[k,h,1], f"{num}", color=COLORS[h%len(COLORS)], va="center", ha="center", size=10, zorder=1, weight='bold')
+plt.show()
