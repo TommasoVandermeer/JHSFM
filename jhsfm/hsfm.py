@@ -1,6 +1,5 @@
 import jax.numpy as jnp
 from jax import jit, vmap, lax, debug
-import numpy as np
 
 @jit
 def wrap_angle(theta:jnp.float32) -> jnp.float32:
@@ -191,7 +190,7 @@ def single_update(idx:jnp.int32, humans_state:jnp.ndarray, human_goal:jnp.ndarra
 vectorized_single_update = vmap(single_update, in_axes=(0, None, 0, None, None, None))
 
 @jit
-def full_update(humans_state:jnp.ndarray, humans_goal:jnp.ndarray, parameters:jnp.ndarray, obstacles:jnp.ndarray, dt:jnp.float32) -> jnp.ndarray:
+def step(humans_state:jnp.ndarray, humans_goal:jnp.ndarray, parameters:jnp.ndarray, obstacles:jnp.ndarray, dt:jnp.float32) -> jnp.ndarray:
     """
     This functions makes a step in time (of length dt) for the humans' state using the Headed Social Force Model (HSFM) with 
     global force guidance for torque and sliding component on the repulsive forces.
