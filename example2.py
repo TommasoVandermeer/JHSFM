@@ -9,27 +9,25 @@ from jhsfm.hsfm import full_update as update
 COLORS = list(mcolors.TABLEAU_COLORS.values())
 
 # Hyperparameters
-n_humans = 15
-circle_radius = 7
+room_half_length = 7
 dt = 0.01
 steps = 1500
+humans_state = np.array([[7.,0.,0.,0.,jnp.pi,0.],
+                         [6.8,0.8,0.,0.,jnp.pi,0.],
+                         [6.8,-0.8,0.,0.,jnp.pi,0.],
+                         [6.5,1.5,0.,0.,jnp.pi,0.],
+                         [6.5,-1.5,0.,0.,jnp.pi,0.]])
+static_obstacles = jnp.array([[[[-0.1,0.5],[0.1,0.5]],[[0.1,0.5],[0.1,3]],[[0.1,3],[-0.1,3]],[[-0.1,3],[-0.1,0.5]]],
+                              [[[-0.1,-0.5],[0.1,-0.5]],[[0.1,-0.5],[0.1,-3]],[[0.1,-3],[-0.1,-3]],[[-0.1,-3],[-0.1,-0.5]]]])
+
 
 # Initial conditions
-humans_state = np.zeros((n_humans, 6))
-humans_parameters = np.zeros((n_humans, 19))
-humans_goal = np.zeros((n_humans, 2))
-angle_width = (2 * jnp.pi) / (n_humans)
-for i in range(n_humans):
-    # State: (px, py, bvx, bvy, theta, omega)
-    humans_state[i,0] = circle_radius * jnp.cos(i * angle_width)
-    humans_state[i,1] = circle_radius * jnp.sin(i * angle_width)
-    humans_state[i,2] = 0
-    humans_state[i,3] = 0
-    humans_state[i,4] = -jnp.pi + i * angle_width
-    humans_state[i,5] = 0
+humans_parameters = np.zeros((len(humans_state), 19))
+humans_goal = np.zeros((len(humans_state), 2))
+for i in range(len(humans_state)):
     # Goal: (gx, gy)
-    humans_goal[i,0] = -humans_state[i,0]
-    humans_goal[i,1] = -humans_state[i,1]
+    humans_goal[i,0] = -room_half_length
+    humans_goal[i,1] = 0.
     # Parameters: (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, ko, kd, alpha, k_lambda, safety_space)
     humans_parameters[i,0] = 0.3
     humans_parameters[i,1] = 80.
@@ -53,14 +51,12 @@ for i in range(n_humans):
 humans_state = jnp.array(humans_state)
 humans_parameters = jnp.array(humans_parameters)
 humans_goal = jnp.array(humans_goal)
-# Obstacles
-static_obstacles = jnp.array([[[[1000.,1000.],[1000.,1000.]]]]) # dummy obstacles
 
 # Simulation
 print(f"\nAvailable devices: {jax.devices()}\n")
 print("Starting simulation...\n")
 start_time = time.time()
-all_states = np.empty((steps+1, n_humans, 6), np.float32)
+all_states = np.empty((steps+1, len(humans_state), 6), np.float32)
 all_states[0] = humans_state
 for i in range(steps):
     humans_state = update(humans_state, humans_goal, humans_parameters, static_obstacles, dt)
@@ -73,8 +69,8 @@ all_states = jax.device_get(all_states) # Transfer data from GPU to CPU for plot
 print("\nPlotting...")
 figure, ax = plt.subplots()
 ax.axis('equal')
-ax.set(xlabel='X',ylabel='Y',xlim=[-circle_radius-1,circle_radius+1],ylim=[-circle_radius-1,circle_radius+1])
-for h in range(n_humans): 
+ax.set(xlabel='X',ylabel='Y',xlim=[-room_half_length-1,room_half_length+1],ylim=[-room_half_length-1,room_half_length+1])
+for h in range(len(humans_state)): 
     ax.plot(all_states[:,h,0], all_states[:,h,1], color=COLORS[h%len(COLORS)], linewidth=0.5, zorder=0)
     ax.scatter(humans_goal[h,0], humans_goal[h,1], marker="*", color=COLORS[h%len(COLORS)], zorder=2)
     for k in range(0,steps+1,300):

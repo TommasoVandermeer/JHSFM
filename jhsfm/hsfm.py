@@ -33,20 +33,20 @@ def get_linear_velocity(theta:jnp.float32, body_velocity: jnp.ndarray) -> jnp.nd
     return linear_velocity
 
 @jit
-def compute_closest_point_to_the_edge(obs_idx:jnp.int32, reference_point:jnp.ndarray, edge:jnp.ndarray, current_closest_point:jnp.ndarray, current_min_distance:jnp.ndarray) -> jnp.ndarray:
+def compute_edge_closest_point(reference_point:jnp.ndarray, edge:jnp.ndarray, current_closest_point:jnp.ndarray, current_min_distance:jnp.float32):
     """
     This function computes the closest point of the edge to the reference point and confronts it with the current closest point and min dist to the obstacle.
     Finally it overweites the closest point and the min distance to the obstacle in the current ones.
     
     args:
-    - obs_idx: index of the obstacle
     - reference_point: shape is (2,) in the form (px, py)
     - edge: shape is (2, 2) where each edge includes its two vertices (p1, p2) composed by two coordinates (x, y)
     - current_closest_point: shape is (2,) in the form (cx, cy)
-    - current_min_distance: min distances to the current closest point
+    - current_min_distance: min distance to the current closest point
 
     output:
-    - None
+    - closest_points: shape is (2,) in the form (cx, cy)
+    - min_distances: min distance to the closest point
     """
     a = edge[0]
     b = edge[1]
@@ -55,34 +55,79 @@ def compute_closest_point_to_the_edge(obs_idx:jnp.int32, reference_point:jnp.nda
     t_star = lax.cond(t_lb<1,lambda x: x,lambda x: 1.,t_lb)
     h = a + t_star * (b - a)
     dist = jnp.linalg.norm(h - reference_point)
-    current_closest_point = current_closest_point.at[obs_idx,:].set((dist < current_min_distance[obs_idx], lambda x: h, lambda x: x, current_closest_point[obs_idx]))
-    current_min_distance = current_min_distance.at[obs_idx].set(lax.cond(dist < current_min_distance[obs_idx], lambda x: dist, lambda x: x, current_min_distance[obs_idx]))
+    closest_point = lax.cond(dist < current_min_distance, lambda x: h, lambda x: x, current_closest_point)
+    min_distance = lax.cond(dist < current_min_distance, lambda x: dist, lambda x: x, current_min_distance)
+    return closest_point, min_distance
 
 @jit
-def full_update(humans_state:jnp.ndarray, humans_goal:jnp.ndarray, parameters:jnp.ndarray, obstacles:jnp.ndarray, dt:jnp.float32) -> jnp.ndarray:
+def compute_obstacle_closest_point(reference_point:jnp.ndarray, obstacle:jnp.ndarray) -> jnp.ndarray:
     """
-    This functions makes a step in time (of length dt) for the humans' state using the Headed Social Force Model (HSFM) with 
-    global force guidance for torque and sliding component on the repulsive forces.
+    This function computes the closest point of the obstacle to the reference point
+    
+    args:
+    - reference_point: shape is (2,) in the form (px, py)
+    - obstacle: shape is (n_edges, 2, 2) where each obs contains one of its edges (min. 3 edges) and each edge includes its two vertices (p1, p2) composed by two coordinates (x, y)
+
+    output:
+    - closest_point: shape is (2,) in the form (cx, cy)
+    """
+    closest_point = jnp.zeros((2,))
+    min_distance = jnp.float32(10000.)
+    closest_point, min_distance = lax.fori_loop(0, len(obstacle), lambda i, vals: compute_edge_closest_point(reference_point, obstacle[i], vals[0], vals[1]), (closest_point, min_distance))
+    return closest_point
+vectorized_compute_obstacle_closest_point = vmap(compute_obstacle_closest_point, in_axes=(None, 0))
+
+@jit
+def pairwise_social_force(human_state:jnp.ndarray, other_human_state:jnp.ndarray, parameters:jnp.ndarray, other_human_parameters:jnp.ndarray):
+    """
+    This function computes the social force between a pair of humans
 
     args:
-    - humans_state: shape is (n_humans, 6) where each row is (px, py, bvx, bvy, theta, omega)
-    - humans_goal: shape is (n_humans, 2) where each row is (gx, gy)
-    - parameters: shape is (n_humans, 19) where each row is (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, ko, kd, alpha, k_lambda, safety_space)
-    - obstacles: shape is (n_obstacles, n_edges, 2, 2) where each obs contains one of its edges (min. 3 edges) and each edge includes its two vertices (p1, p2) composed by two coordinates (x, y)
-    - dt: sampling time for the update
-    
-    output:
-    - updated_humans_state: shape is (n_humans, 6) where each row is (px, py, bvx, bvy, theta, omega)
-    """
-    stacked_states = jnp.stack([humans_state for _ in range(len(humans_state))], axis=0)
-    stacked_parameters = jnp.stack([parameters for _ in range(len(humans_state))], axis=0)
-    stacked_obstacles = jnp.stack([obstacles for _ in range(len(humans_state))], axis=0)
-    idxs = jnp.arange(len(humans_state))
-    dts = jnp.ones((len(humans_state),)) * dt
-    updated_humans_state = single_update(idxs, stacked_states, humans_goal, stacked_parameters, stacked_obstacles, dts)
-    return updated_humans_state
+    - human_state: shape is (6,) in the form (px, py, bvx, bvy, theta, omega)
+    - other_humans_state: shape is (6,) in the form (px, py, bvx, bvy, theta, omega)
+    - parameters: shape is (19,) in the form (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, k0, kd, alpha, k_lambda, safety_space)
+    - other_humans_parameters: shape is (19,) in the form (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, k0, kd, alpha, k_lambda, safety_space)
 
-@vmap
+    output:
+    - social_force: shape is (2,) in the form (fx, fy)
+    """
+    rij = parameters[0] + other_human_parameters[0] + parameters[18] + other_human_parameters[18]
+    diff = human_state[:2] - other_human_state[:2]
+    dist = jnp.linalg.norm(diff)
+    nij = diff / dist
+    real_dist = rij - dist
+    tij = jnp.array([-nij[1], nij[0]])
+    human_linear_velocity = get_linear_velocity(human_state[4], human_state[2:4])
+    other_human_linear_velocity = get_linear_velocity(other_human_state[4], other_human_state[2:4])
+    delta_vij = jnp.dot(other_human_linear_velocity - human_linear_velocity, tij)
+    pairwise_social_force = lax.cond(real_dist > 0, lambda x: x * (parameters[4] * jnp.exp(real_dist / parameters[6]) + parameters[12] * real_dist) * nij + (parameters[8] * jnp.exp(real_dist / parameters[10]) + parameters[13] * real_dist * delta_vij) * tij, lambda x: x * (parameters[4] * jnp.exp(real_dist / parameters[6])) * nij + (parameters[8] * jnp.exp(real_dist / parameters[10])) * tij, jnp.ones((2,)))
+    return pairwise_social_force
+
+@jit
+def compute_obstacle_force(human_state:jnp.ndarray, obstacle:jnp.ndarray, parameters:jnp.ndarray):
+    """
+    This function computes the obstacle force between a human and an obstacle.
+    
+    args:
+    - human_state: shape is (6,) in the form (px, py, bvx, bvy, theta, omega)
+    - obstacle: shape is (2,) in the form (ox, oy)
+    - parameters: shape is (19,) in the form (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, ko, kd, alpha, k_lambda, safety_space)
+
+    output:
+    - obstacle_force: shape is (2,) in the form (fx, fy
+    """
+    diff = human_state[:2] - obstacle
+    dist = jnp.linalg.norm(diff)
+    niw = diff / dist
+    tiw = jnp.array([-niw[1], niw[0]])
+    linear_velocity = get_linear_velocity(human_state[4], human_state[2:4])
+    delta_viw = - jnp.dot(linear_velocity, tiw)
+    real_dist = parameters[0] - dist + parameters[18]
+    obstacle_force = lax.cond(real_dist > 0, lambda x: x * (parameters[5] * jnp.exp(real_dist / parameters[7]) + parameters[12] * real_dist) * niw + (-parameters[9] * jnp.exp(real_dist / parameters[11]) - parameters[13] * real_dist) * delta_viw * tiw, lambda x: x * (parameters[5] * jnp.exp(real_dist / parameters[7])) * niw + (-parameters[9] * jnp.exp(real_dist / parameters[11])) * delta_viw * tiw, jnp.ones((2,)))
+    return obstacle_force
+vectorized_compute_obstacle_force = vmap(compute_obstacle_force, in_axes=(None, 0, None))
+
+@jit
 def single_update(idx:jnp.int32, humans_state:jnp.ndarray, human_goal:jnp.ndarray, parameters:jnp.ndarray, obstacles:jnp.ndarray, dt:jnp.float32) -> jnp.ndarray:
     """
     This functions makes a step in time (of length dt) for a single human using the Headed Social Force Model (HSFM) with 
@@ -109,20 +154,8 @@ def single_update(idx:jnp.int32, humans_state:jnp.ndarray, human_goal:jnp.ndarra
     # Social force computation
     social_force = lax.fori_loop(0, len(humans_state), lambda j, acc: lax.cond(j != idx, lambda acc: acc + pairwise_social_force(self_state, humans_state[j], self_parameters, parameters[j]), lambda acc: acc, acc), jnp.zeros((2,)))
     # Obstacle force computation
-    closest_points = jnp.zeros((len(obstacles), 2))
-    min_distances = jnp.ones((len(obstacles),)) * 10000
-    for i, o in enumerate(obstacles):
-        for edge in o:
-            a = edge[0]
-            b = edge[1]
-            t = (jnp.dot(self_state[0:2] - a, b -a)) / (jnp.linalg.norm(b - a) ** 2)
-            t_lb = lax.cond(t>0,lambda x: x,lambda x: 0.,t)
-            t_star = lax.cond(t_lb<1,lambda x: x,lambda x: 1.,t_lb)
-            h = a + t_star * (b - a)
-            dist = jnp.linalg.norm(h - self_state[0:2])
-            closest_points = closest_points.at[i,:].set(lax.cond(dist < min_distances[i], lambda x: h, lambda x: x, closest_points[i]))
-            min_distances = min_distances.at[i].set(lax.cond(dist < min_distances[i], lambda x: dist, lambda x: x, min_distances[i]))
-    obstacle_force = jnp.zeros((2,))
+    closest_points = vectorized_compute_obstacle_closest_point(self_state[:2], obstacles)
+    obstacle_force = jnp.sum(vectorized_compute_obstacle_force(self_state, closest_points, self_parameters), axis=0) / len(obstacles)
     # Torque computation
     input_force = desired_force + social_force + obstacle_force
     input_force_norm = jnp.linalg.norm(input_force)
@@ -155,31 +188,24 @@ def single_update(idx:jnp.int32, humans_state:jnp.ndarray, human_goal:jnp.ndarra
     # debug.print("jax.debug.print(global_force) -> {x}", x=global_force)
     # debug.print("jax.debug.print(updated_human_state) -> {x}", x=updated_human_state)
     return updated_human_state
+vectorized_single_update = vmap(single_update, in_axes=(0, None, 0, None, None, None))
 
 @jit
-def pairwise_social_force(human_state:jnp.ndarray, other_human_state:jnp.ndarray, parameters:jnp.ndarray, other_human_parameters:jnp.ndarray):
+def full_update(humans_state:jnp.ndarray, humans_goal:jnp.ndarray, parameters:jnp.ndarray, obstacles:jnp.ndarray, dt:jnp.float32) -> jnp.ndarray:
     """
-    This function computes the social force between a pair of humans
+    This functions makes a step in time (of length dt) for the humans' state using the Headed Social Force Model (HSFM) with 
+    global force guidance for torque and sliding component on the repulsive forces.
 
     args:
-    - human_state: shape is (6,) in the form (px, py, bvx, bvy, theta, omega)
-    - other_humans_state: shape is (6,) in the form (px, py, bvx, bvy, theta, omega)
-    - parameters: shape is (19,) in the form (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, k0, kd, alpha, k_lambda, safety_space)
-    - other_humans_parameters: shape is (19,) in the form (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, k0, kd, alpha, k_lambda, safety_space)
-
+    - humans_state: shape is (n_humans, 6) where each row is (px, py, bvx, bvy, theta, omega)
+    - humans_goal: shape is (n_humans, 2) where each row is (gx, gy)
+    - parameters: shape is (n_humans, 19) where each row is (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, ko, kd, alpha, k_lambda, safety_space)
+    - obstacles: shape is (n_obstacles, n_edges, 2, 2) where each obs contains one of its edges (min. 3 edges) and each edge includes its two vertices (p1, p2) composed by two coordinates (x, y)
+    - dt: sampling time for the update
+    
     output:
-    - social_force: shape is (2,) in the form (fx, fy)
+    - updated_humans_state: shape is (n_humans, 6) where each row is (px, py, bvx, bvy, theta, omega)
     """
-    rij = parameters[0] + other_human_parameters[0] + parameters[18] + other_human_parameters[18]
-    diff = human_state[:2] - other_human_state[:2]
-    dist = jnp.linalg.norm(diff)
-    nij = diff / dist
-    real_dist = rij - dist
-    tij = jnp.array([-nij[1], nij[0]])
-    human_linear_velocity = get_linear_velocity(human_state[4], human_state[2:4])
-    other_human_linear_velocity = get_linear_velocity(other_human_state[4], other_human_state[2:4])
-    delta_vij = jnp.dot(other_human_linear_velocity - human_linear_velocity, tij)
-    pairwise_social_force = lax.cond(real_dist > 0, lambda x: x * (parameters[4] * jnp.exp(real_dist / parameters[6]) + parameters[12] * real_dist) * nij + (parameters[8] * jnp.exp(real_dist / parameters[10]) + parameters[13] * real_dist * delta_vij) * tij, lambda x: x * (parameters[4] * jnp.exp(real_dist / parameters[6])) * nij + (parameters[8] * jnp.exp(real_dist / parameters[10])) * tij, jnp.ones((2,)))
-    return pairwise_social_force
-
-
+    idxs = jnp.arange(len(humans_state))
+    updated_humans_state = vectorized_single_update(idxs, humans_state, humans_goal, parameters, obstacles, dt)
+    return updated_humans_state
