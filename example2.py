@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import time
+import os
 from jhsfm.hsfm import step
 from jhsfm.utils import *
 
@@ -50,7 +51,7 @@ all_states = jax.device_get(all_states) # Transfer data from GPU to CPU for plot
 # Plot
 COLORS = list(mcolors.TABLEAU_COLORS.values())
 print("\nPlotting...")
-figure, ax = plt.subplots()
+figure, ax = plt.subplots(figsize=(10,10))
 ax.axis('equal')
 ax.set(xlabel='X',ylabel='Y',xlim=[-room_half_length-1,room_half_length+1],ylim=[-room_half_length-1,room_half_length+1])
 for h in range(len(humans_state)): 
@@ -64,4 +65,5 @@ for h in range(len(humans_state)):
         num = int(k*dt) if (k*dt).is_integer() else (k*dt)
         ax.text(all_states[k,h,0],all_states[k,h,1], f"{num}", color=COLORS[h%len(COLORS)], va="center", ha="center", size=10, zorder=1, weight='bold')
 for o in static_obstacles: ax.fill(o[:,:,0],o[:,:,1], facecolor='black', edgecolor='black', zorder=3)
+figure.savefig(os.path.join(os.path.dirname(__file__),".images",f"example2.png"), format='png')
 plt.show()

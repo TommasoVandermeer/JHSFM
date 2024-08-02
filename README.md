@@ -2,8 +2,7 @@
 
 > A Jax based implementation of the Headed Social Force Model in Python.
 
-![circular_crossing_hsfm](https://github.com/TommasoVandermeer/JHSFM/blob/dev/.images/example1.pdf)
-
+![circular_crossing_hsfm](.images/example1.png)
 
 ## Description
 This repository contains an implementation of the **Headed Social Force Model** to simulate human motion in Python. Following the current programming trend, the code is based on the well-known **JAX** Python library that allows fast computations thanks to vectorization, parallelization and accelerated linear algebra.
@@ -49,20 +48,26 @@ deactivate
 ## Getting started
 As previously mentioned, the repository includes three examples the can be run to learn the implementation details.
 
+### Example one
 Example 1 simulates the circular crossing scenario, a scenario widely employed in the reasearch community. Each human is positioned (randomly or evenly spaced) in the boundary of a circle and its goal is to reach the point diametrically opposite to its initial position. To run it use:
 ```
 python3 example1.py
 ```
+![circular_crossing_hsfm](.images/example1.png)
 
+### Example two
 Example 2 simulates a scenario in which several pedestrians need to go through a narrow passage (e.g., a door). To run it use:
 ```
 python3 example2.py
 ```
+![go_through_door_hsfm](.images/example2.png)
 
+### Example three
 Example 3 simulates a scenario in which humans flow in a large corridor all in the same direction to reach the othe end. To run it use:
 ```
 python3 example3.py
 ```
+![parallel_traffic](.images/example3.png)
 
 ## References
 <a id="1">[1]</a> Farina, Francesco, et al. "Walking ahead: The headed social force model." PloS one 12.1 (2017): e0169734.
