@@ -1,6 +1,10 @@
 import jax.numpy as jnp
 from jax import jit, vmap, lax, debug, random
 
+# TODO: Add generate random humans parameters function
+# TODO: Add generate random circular crossing scenario initial conditions function
+# TODO: Add generate random parallel traffica initial conditions function
+
 def get_standard_humans_parameters(n_humans:jnp.int32):
     """
     Returns the standard parameters of the HSFM for the humans in the simulation. Parameters are the same for all humans in the form:

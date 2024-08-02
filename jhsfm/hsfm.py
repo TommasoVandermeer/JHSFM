@@ -1,6 +1,8 @@
 import jax.numpy as jnp
 from jax import jit, vmap, lax, debug
 
+# TODO: Add possibility to make a step without obstacles (for now a dummy obstacle is needed)
+
 @jit
 def wrap_angle(theta:jnp.float32) -> jnp.float32:
     """
