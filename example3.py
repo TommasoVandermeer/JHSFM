@@ -7,8 +7,6 @@ import time
 from jhsfm.hsfm import step
 from jhsfm.utils import *
 
-COLORS = list(mcolors.TABLEAU_COLORS.values())
-
 # Hyperparameters
 n_humans = 15
 traffic_length = 14
@@ -51,7 +49,7 @@ humans_goal = jnp.array(humans_goal)
 static_obstacles = jnp.array([[[[-traffic_length/2-3,-traffic_height/2-1],[-traffic_length/2-3,-traffic_height/2-0.5]],[[-traffic_length/2-3,-traffic_height/2-0.5],[traffic_length/2,-traffic_height/2-0.5]],[[traffic_length/2,-traffic_height/2-0.5],[traffic_length/2,-traffic_height/2-1]],[[traffic_length/2,-traffic_height/2-1],[-traffic_length/2-3,-traffic_height/2-1]]],
                               [[[-traffic_length/2-3,traffic_height/2+1],[-traffic_length/2-3,traffic_height/2+0.5]],[[-traffic_length/2-3,traffic_height/2+0.5],[traffic_length/2,traffic_height/2+0.5]],[[traffic_length/2,traffic_height/2+0.5],[traffic_length/2,traffic_height/2+1]],[[traffic_length/2,traffic_height/2+1],[-traffic_length/2-3,traffic_height/2+1]]]])
 
-# Dummy step - Warm-up (exclude JIT compilation time)
+# Dummy step - Warm-up (we first compile the JIT functions to avoid counting compilation time later)
 _ = step(humans_state, humans_goal, humans_parameters, static_obstacles, dt)
 
 # Simulation 
@@ -69,6 +67,7 @@ print("Simulation done! Computation time: ", end_time - start_time)
 all_states = jax.device_get(all_states) # Transfer data from GPU to CPU for plotting (only at the end)
 
 # Plot
+COLORS = list(mcolors.TABLEAU_COLORS.values())
 print("\nPlotting...")
 figure, ax = plt.subplots()
 ax.axis('equal')

@@ -3,7 +3,8 @@ from jax import jit, vmap, lax, debug, random
 
 def get_standard_humans_parameters(n_humans:jnp.int32):
     """
-    Returns the standard parameters of the HSFM for the humans in the simulation.
+    Returns the standard parameters of the HSFM for the humans in the simulation. Parameters are the same for all humans in the form:
+    (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, ko, kd, alpha, k_lambda, safety_space)
 
     args:
     - n_humans: int - Number of humans in the simulation.
