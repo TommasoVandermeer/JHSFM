@@ -2,7 +2,7 @@
 
 > A Jax based implementation of the Headed Social Force Model in Python.
 
-![circular_crossing_hsfm](https://github.com/TommasoVandermeer/JHSFM/blob/main/.images/example1.eps)
+![circular_crossing_hsfm](https://github.com/TommasoVandermeer/JHSFM/blob/dev/.images/example1.pdf)
 
 
 ## Description

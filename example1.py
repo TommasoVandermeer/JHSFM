@@ -69,5 +69,5 @@ for h in range(n_humans):
         num = int(k*dt) if (k*dt).is_integer() else (k*dt)
         ax.text(all_states[k,h,0],all_states[k,h,1], f"{num}", color=COLORS[h%len(COLORS)], va="center", ha="center", size=10, zorder=1, weight='bold')
 for o in static_obstacles: ax.fill(o[:,:,0],o[:,:,1], facecolor='black', edgecolor='black', zorder=3)
-figure.savefig(os.path.join(os.path.dirname(__file__),".images",f"example1.eps"), format='eps')
+figure.savefig(os.path.join(os.path.dirname(__file__),".images",f"example1.png"), format='png')
 plt.show()
