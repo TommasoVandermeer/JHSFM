@@ -2,6 +2,9 @@
 
 > A Jax based implementation of the Headed Social Force Model in Python.
 
+![circular_crossing_hsfm](https://github.com/TommasoVandermeer/JHSFM/blob/main/.images/example1.eps)
+
+
 ## Description
 This repository contains an implementation of the **Headed Social Force Model** to simulate human motion in Python. Following the current programming trend, the code is based on the well-known **JAX** Python library that allows fast computations thanks to vectorization, parallelization and accelerated linear algebra.
 
