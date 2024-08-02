@@ -1,6 +1,6 @@
-# JHSFM (Jax Headed Social Force Model)
+# JHSFM (JAX Headed Social Force Model)
 
-> A Jax based implementation of the Headed Social Force Model in Python.
+> A JAX based implementation of the Headed Social Force Model in Python.
 
 ![circular_crossing_hsfm](.images/example1.png)
 
