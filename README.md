@@ -9,7 +9,7 @@ The main contribution of this repo is the ***step()*** method which takes in inp
 
 Finally, **some examples** are included to show how the model can be used in practice and how humans move following the HSFM.
 
-Note that this implementation of the HSFM differs from the original one in [[1]](#1). It implements a modification proposed in [[2]](#2) to introduce a sliding component in the repulsive forces and has a slightly modified torque equation in order for humans' orientation to direction of the sum of all forces (not only the goal attractive force as in the original one).
+Note that this implementation of the HSFM differs from the original one in [[1]](#1). It implements a modification proposed in [[2]](#2) to introduce a sliding component in the repulsive forces and has a slightly modified torque equation in order for humans' orientation to follow the direction of the sum of all forces (not only the goal attractive force as in the original one).
 
 ## Table of contents
 - [Installation](#installation)
