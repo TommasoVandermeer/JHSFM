@@ -4,7 +4,7 @@ from jax import jit, vmap, lax, debug
 # TODO: Add possibility to make a step without obstacles (for now a dummy obstacle is needed)
 
 @jit
-def wrap_angle(theta:jnp.float32) -> jnp.float32:
+def wrap_angle(theta:float) -> float:
     """
     This function wraps the angle to the interval [-pi, pi]
     
@@ -18,7 +18,7 @@ def wrap_angle(theta:jnp.float32) -> jnp.float32:
     return wrapped_theta
 
 @jit
-def get_linear_velocity(theta:jnp.float32, body_velocity: jnp.ndarray) -> jnp.ndarray:
+def get_linear_velocity(theta:float, body_velocity: jnp.ndarray) -> jnp.ndarray:
     """
     This function computes the linear velocity of the agent in the world frame
     
@@ -34,7 +34,7 @@ def get_linear_velocity(theta:jnp.float32, body_velocity: jnp.ndarray) -> jnp.nd
     return linear_velocity
 
 @jit
-def compute_edge_closest_point(reference_point:jnp.ndarray, edge:jnp.ndarray, current_closest_point:jnp.ndarray, current_min_distance:jnp.float32):
+def compute_edge_closest_point(reference_point:jnp.ndarray, edge:jnp.ndarray, current_closest_point:jnp.ndarray, current_min_distance:float):
     """
     This function computes the closest point of the edge to the reference point and confronts it with the current closest point and min dist to the obstacle.
     Finally it overweites the closest point and the min distance to the obstacle in the current ones.
@@ -129,7 +129,7 @@ def compute_obstacle_force(human_state:jnp.ndarray, obstacle:jnp.ndarray, parame
 vectorized_compute_obstacle_force = vmap(compute_obstacle_force, in_axes=(None, 0, None))
 
 @jit
-def single_update(idx:jnp.int32, humans_state:jnp.ndarray, human_goal:jnp.ndarray, parameters:jnp.ndarray, obstacles:jnp.ndarray, dt:jnp.float32) -> jnp.ndarray:
+def single_update(idx:int, humans_state:jnp.ndarray, human_goal:jnp.ndarray, parameters:jnp.ndarray, obstacles:jnp.ndarray, dt:float) -> jnp.ndarray:
     """
     This functions makes a step in time (of length dt) for a single human using the Headed Social Force Model (HSFM) with 
     global force guidance for torque and sliding component on the repulsive forces.
@@ -192,7 +192,7 @@ def single_update(idx:jnp.int32, humans_state:jnp.ndarray, human_goal:jnp.ndarra
 vectorized_single_update = vmap(single_update, in_axes=(0, None, 0, None, None, None))
 
 @jit
-def step(humans_state:jnp.ndarray, humans_goal:jnp.ndarray, parameters:jnp.ndarray, obstacles:jnp.ndarray, dt:jnp.float32) -> jnp.ndarray:
+def step(humans_state:jnp.ndarray, humans_goal:jnp.ndarray, parameters:jnp.ndarray, obstacles:jnp.ndarray, dt:float) -> jnp.ndarray:
     """
     This functions makes a step in time (of length dt) for the humans' state using the Headed Social Force Model (HSFM) with 
     global force guidance for torque and sliding component on the repulsive forces.
