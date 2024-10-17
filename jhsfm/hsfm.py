@@ -92,17 +92,31 @@ def pairwise_social_force(human_state:jnp.ndarray, other_human_state:jnp.ndarray
     output:
     - social_force: shape is (2,) in the form (fx, fy)
     """
-    rij = parameters[0] + other_human_parameters[0] + parameters[18] + other_human_parameters[18]
-    diff = human_state[:2] - other_human_state[:2]
-    dist = jnp.linalg.norm(diff)
-    nij = diff / dist
-    real_dist = rij - dist
-    tij = jnp.array([-nij[1], nij[0]])
-    human_linear_velocity = get_linear_velocity(human_state[4], human_state[2:4])
-    other_human_linear_velocity = get_linear_velocity(other_human_state[4], other_human_state[2:4])
-    delta_vij = jnp.dot(other_human_linear_velocity - human_linear_velocity, tij)
-    pairwise_social_force = lax.cond(real_dist > 0, lambda x: x * (parameters[4] * jnp.exp(real_dist / parameters[6]) + parameters[12] * real_dist) * nij + (parameters[8] * jnp.exp(real_dist / parameters[10]) + parameters[13] * real_dist * delta_vij) * tij, lambda x: x * (parameters[4] * jnp.exp(real_dist / parameters[6])) * nij + (parameters[8] * jnp.exp(real_dist / parameters[10])) * tij, jnp.ones((2,)))
+    def compute_social_force(human_state:jnp.ndarray, other_human_state:jnp.ndarray, parameters:jnp.ndarray, other_human_parameters:jnp.ndarray):
+        rij = parameters[0] + other_human_parameters[0] + parameters[18] + other_human_parameters[18]
+        diff = human_state[:2] - other_human_state[:2]
+        dist = jnp.linalg.norm(diff)
+        nij = diff / dist
+        real_dist = rij - dist
+        tij = jnp.array([-nij[1], nij[0]])
+        human_linear_velocity = get_linear_velocity(human_state[4], human_state[2:4])
+        other_human_linear_velocity = get_linear_velocity(other_human_state[4], other_human_state[2:4])
+        delta_vij = jnp.dot(other_human_linear_velocity - human_linear_velocity, tij)
+        pairwise_social_force = lax.cond(
+            real_dist > 0, 
+            lambda _: (parameters[4] * jnp.exp(real_dist / parameters[6]) + parameters[12] * real_dist) * nij + (parameters[8] * jnp.exp(real_dist / parameters[10]) + parameters[13] * real_dist * delta_vij) * tij, 
+            lambda _: (parameters[4] * jnp.exp(real_dist / parameters[6])) * nij + (parameters[8] * jnp.exp(real_dist / parameters[10])) * tij, 
+            None)
+        return pairwise_social_force
+    
+    pairwise_social_force = lax.cond(
+        jnp.all(human_state == other_human_state), # In case the human is the same as the other human, social force should not be computed
+        lambda _: jnp.zeros((2,)),
+        lambda _: compute_social_force(human_state, other_human_state, parameters, other_human_parameters),
+        None)
+    
     return pairwise_social_force
+vectorized_pairwise_social_force = vmap(pairwise_social_force, in_axes=(None, 0, None, 0))
 
 @jit
 def compute_obstacle_force(human_state:jnp.ndarray, obstacle:jnp.ndarray, parameters:jnp.ndarray):
@@ -151,9 +165,22 @@ def single_update(idx:int, humans_state:jnp.ndarray, human_goal:jnp.ndarray, par
     linear_velocity = get_linear_velocity(self_state[4], self_state[2:4])
     diff = human_goal - self_state[:2]
     dist = jnp.linalg.norm(diff)
-    desired_force =  lax.cond(dist > self_parameters[0],lambda x: x * (self_parameters[1] * (((diff / dist) * self_parameters[2]) - linear_velocity) / self_parameters[3]),lambda x: x * 0,jnp.ones((2,)))
+    desired_force =  lax.cond(
+        dist > self_parameters[0],
+        lambda _: (self_parameters[1] * (((diff / dist) * self_parameters[2]) - linear_velocity) / self_parameters[3]),
+        lambda _: jnp.zeros((2,)),
+        None)
     # Social force computation
-    social_force = lax.fori_loop(0, len(humans_state), lambda j, acc: lax.cond(j != idx, lambda acc: acc + pairwise_social_force(self_state, humans_state[j], self_parameters, parameters[j]), lambda acc: acc, acc), jnp.zeros((2,)))
+    social_force = lax.fori_loop(
+        0, 
+        len(humans_state), 
+        lambda j, acc: lax.cond(
+            j != idx, 
+            lambda acc: acc + pairwise_social_force(self_state, humans_state[j], self_parameters, parameters[j]), 
+            lambda acc: acc, 
+            acc), 
+        jnp.zeros((2,)))
+    # social_force = jnp.sum(vectorized_pairwise_social_force(self_state, humans_state, self_parameters, parameters), axis=0)
     # Obstacle force computation
     closest_points = vectorized_compute_obstacle_closest_point(self_state[:2], obstacles)
     obstacle_force = jnp.sum(vectorized_compute_obstacle_force(self_state, closest_points, self_parameters), axis=0) / len(obstacles)
@@ -166,10 +193,11 @@ def single_update(idx:int, humans_state:jnp.ndarray, human_goal:jnp.ndarray, par
     k_omega = inertia * (1 + self_parameters[16]) * jnp.sqrt((self_parameters[17] * input_force_norm) / self_parameters[16])
     torque = - k_theta * wrap_angle(self_state[4] - input_force_angle) - k_omega * self_state[5]
     # Global force computation
-    global_force = jnp.zeros((2,))
-    global_force = global_force.at[0].set(jnp.dot(input_force, jnp.array([jnp.cos(self_state[4]), jnp.sin(self_state[4])])))
-    global_force = global_force.at[1].set(self_parameters[14] * jnp.dot(social_force + obstacle_force, jnp.array([-jnp.sin(self_state[4]), jnp.cos(self_state[4])])) - self_parameters[15] * self_state[3])
+    global_force = jnp.array([
+        jnp.dot(input_force, jnp.array([jnp.cos(self_state[4]), jnp.sin(self_state[4])])),
+        self_parameters[14] * jnp.dot(social_force + obstacle_force, jnp.array([-jnp.sin(self_state[4]), jnp.cos(self_state[4])])) - self_parameters[15] * self_state[3]])
     # Update
+    ## BOUND BODY VELOCITY
     updated_human_state = jnp.zeros((6,))
     updated_human_state = updated_human_state.at[0].set(self_state[0] + dt * linear_velocity[0])
     updated_human_state = updated_human_state.at[1].set(self_state[1] + dt * linear_velocity[1])
@@ -207,6 +235,5 @@ def step(humans_state:jnp.ndarray, humans_goal:jnp.ndarray, parameters:jnp.ndarr
     output:
     - updated_humans_state: shape is (n_humans, 6) where each row is (px, py, bvx, bvy, theta, omega)
     """
-    idxs = jnp.arange(len(humans_state))
-    updated_humans_state = vectorized_single_update(idxs, humans_state, humans_goal, parameters, obstacles, dt)
+    updated_humans_state = vectorized_single_update(jnp.arange(len(humans_state)), humans_state, humans_goal, parameters, obstacles, dt)
     return updated_humans_state

@@ -2,8 +2,6 @@ import jax.numpy as jnp
 from jax import jit, vmap, lax, debug, random
 
 # TODO: Add generate random humans parameters function
-# TODO: Add generate random circular crossing scenario initial conditions function
-# TODO: Add generate random parallel traffica initial conditions function
 
 def get_standard_humans_parameters(n_humans:int):
     """
