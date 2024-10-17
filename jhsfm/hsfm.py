@@ -197,7 +197,6 @@ def single_update(idx:int, humans_state:jnp.ndarray, human_goal:jnp.ndarray, par
         jnp.dot(input_force, jnp.array([jnp.cos(self_state[4]), jnp.sin(self_state[4])])),
         self_parameters[14] * jnp.dot(social_force + obstacle_force, jnp.array([-jnp.sin(self_state[4]), jnp.cos(self_state[4])])) - self_parameters[15] * self_state[3]])
     # Update
-    ## BOUND BODY VELOCITY
     updated_human_state = jnp.zeros((6,))
     updated_human_state = updated_human_state.at[0].set(self_state[0] + dt * linear_velocity[0])
     updated_human_state = updated_human_state.at[1].set(self_state[1] + dt * linear_velocity[1])
@@ -205,6 +204,13 @@ def single_update(idx:int, humans_state:jnp.ndarray, human_goal:jnp.ndarray, par
     updated_human_state = updated_human_state.at[2].set(self_state[2] + dt * (global_force[0] / self_parameters[1]))
     updated_human_state = updated_human_state.at[3].set(self_state[3] + dt * (global_force[1] / self_parameters[1]))
     updated_human_state = updated_human_state.at[5].set(self_state[5] + dt * (torque / inertia))
+    # Bound body velocity
+    updated_human_state = updated_human_state.at[2].set(
+        lax.cond(
+            jnp.linalg.norm(updated_human_state[2:4]) > self_parameters[2], 
+            lambda x: x / jnp.linalg.norm(x) * self_parameters[2], 
+            lambda x: x, 
+            updated_human_state[2]))
     # DEBUGGING
     # debug.print("\n")
     # debug.print("jax.debug.print(closest_points) -> {x}", x=closest_points)
