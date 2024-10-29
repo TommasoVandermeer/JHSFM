@@ -73,7 +73,7 @@ def compute_obstacle_closest_point(reference_point:jnp.ndarray, obstacle:jnp.nda
     - closest_point: shape is (2,) in the form (cx, cy)
     """
     closest_point = jnp.zeros((2,))
-    min_distance = jnp.float32(10000.)
+    min_distance = jnp.float64(10000.)
     closest_point, min_distance = lax.fori_loop(0, len(obstacle), lambda i, vals: compute_edge_closest_point(reference_point, obstacle[i], vals[0], vals[1]), (closest_point, min_distance))
     return closest_point
 vectorized_compute_obstacle_closest_point = vmap(compute_obstacle_closest_point, in_axes=(None, 0))
