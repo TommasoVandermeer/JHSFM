@@ -73,7 +73,7 @@ def compute_obstacle_closest_point(reference_point:jnp.ndarray, obstacle:jnp.nda
     - closest_point: shape is (2,) in the form (cx, cy)
     """
     closest_point = jnp.zeros((2,))
-    min_distance = jnp.float64(10000.)
+    min_distance = jnp.float32(10000.)
     closest_point, min_distance = lax.fori_loop(0, len(obstacle), lambda i, vals: compute_edge_closest_point(reference_point, obstacle[i], vals[0], vals[1]), (closest_point, min_distance))
     return closest_point
 vectorized_compute_obstacle_closest_point = vmap(compute_obstacle_closest_point, in_axes=(None, 0))
@@ -102,11 +102,7 @@ def pairwise_social_force(human_state:jnp.ndarray, other_human_state:jnp.ndarray
         human_linear_velocity = get_linear_velocity(human_state[4], human_state[2:4])
         other_human_linear_velocity = get_linear_velocity(other_human_state[4], other_human_state[2:4])
         delta_vij = jnp.dot(other_human_linear_velocity - human_linear_velocity, tij)
-        pairwise_social_force = lax.cond(
-            real_dist > 0, 
-            lambda _: (parameters[4] * jnp.exp(real_dist / parameters[6]) + parameters[12] * real_dist) * nij + (parameters[8] * jnp.exp(real_dist / parameters[10]) + parameters[13] * real_dist * delta_vij) * tij, 
-            lambda _: (parameters[4] * jnp.exp(real_dist / parameters[6])) * nij + (parameters[8] * jnp.exp(real_dist / parameters[10])) * tij, 
-            None)
+        pairwise_social_force = (parameters[4] * jnp.exp(real_dist / parameters[6]) + parameters[12] * jnp.max(jnp.array([0, real_dist]))) * nij + (parameters[8] * jnp.exp(real_dist / parameters[10]) + parameters[13] * jnp.max(jnp.array([0, real_dist])) * delta_vij) * tij
         return pairwise_social_force
     
     pairwise_social_force = lax.cond(
