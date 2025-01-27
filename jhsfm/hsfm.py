@@ -204,7 +204,7 @@ def single_update(idx:int, humans_state:jnp.ndarray, human_goal:jnp.ndarray, par
     updated_human_state = updated_human_state.at[2:4].set(
         lax.cond(
             jnp.linalg.norm(updated_human_state[2:4]) > self_parameters[2], 
-            lambda x: x / (jnp.linalg.norm(x) * self_parameters[2]), 
+            lambda x: (x / jnp.linalg.norm(x)) * self_parameters[2], 
             lambda x: x, 
             updated_human_state[2:4]))
     # DEBUGGING
