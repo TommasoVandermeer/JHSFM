@@ -1,8 +1,6 @@
 import jax.numpy as jnp
 from jax import jit, vmap, lax, debug
 
-# TODO: Add possibility to make a step without obstacles (for now a dummy obstacle is needed)
-
 @jit
 def wrap_angle(theta:float) -> float:
     """
@@ -197,10 +195,17 @@ def single_update(idx:int, humans_state:jnp.ndarray, human_goal:jnp.ndarray, par
     social_force = jnp.sum(vectorized_pairwise_social_force(self_state, humans_state, self_parameters, parameters), axis=0)
     # Obstacle force computation
     closest_points = vectorized_compute_obstacle_closest_point(self_state[:2], obstacles)
-    obstacle_force = jnp.sum(vectorized_compute_obstacle_force(self_state, closest_points, self_parameters), axis=0) / len(obstacles)
+    num_real_obstacles = jnp.sum(~jnp.isnan(closest_points[:,0]))
+    obstacle_force = lax.cond(
+        num_real_obstacles > 0,
+        lambda _: jnp.sum(vectorized_compute_obstacle_force(self_state, closest_points, self_parameters), axis=0) / num_real_obstacles,
+        lambda _: jnp.zeros((2,)),
+        None
+    )
     # Torque computation
     input_force = desired_force + social_force + obstacle_force
     input_force_norm = jnp.linalg.norm(input_force)
+    input_force_norm = jnp.min(jnp.array([input_force_norm, 1000])) # Limit force to avoid numerical issues
     input_force_angle = jnp.arctan2(input_force[1], input_force[0])
     inertia = (self_parameters[1] * self_parameters[0] * self_parameters[0]) / 2
     k_theta = inertia * self_parameters[17] * input_force_norm
@@ -224,7 +229,9 @@ def single_update(idx:int, humans_state:jnp.ndarray, human_goal:jnp.ndarray, par
             jnp.linalg.norm(updated_human_state[2:4]) > self_parameters[2], 
             lambda x: (x / jnp.linalg.norm(x)) * self_parameters[2], 
             lambda x: x, 
-            updated_human_state[2:4]))
+            updated_human_state[2:4]
+        )
+    )
     # DEBUGGING
     # debug.print("\n")
     # debug.print("jax.debug.print(closest_points) -> {x}", x=closest_points)

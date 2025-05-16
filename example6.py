@@ -9,51 +9,33 @@ from jhsfm.hsfm import step
 from jhsfm.utils import *
 
 # Hyperparameters
-n_humans = 35
-traffic_length = 14
-traffic_height = 3
+n_humans = 15
+circle_radius = 7
 dt = 0.01
-end_time = 5
-np.random.seed(0) # For reproducibility
+end_time = 15
 
 # Initial conditions
 humans_state = np.zeros((n_humans, 6))
 humans_goal = np.zeros((n_humans, 2))
-humans_pos = []
+angle_width = (2 * jnp.pi) / (n_humans)
 for i in range(n_humans):
-    while True:
-        a = -(traffic_length/2 ) + .3
-        b = traffic_length/2 - .3
-        pos = np.array([(b - a) * np.random.random() + a, (np.random.random() - 0.5) * traffic_height], dtype=np.float64)
-        collide = False
-        for j in range(len(humans_pos)):
-            other_human_pos = humans_pos[j]
-            if np.linalg.norm(pos - other_human_pos) - .7 < 0: # This is  discomfort distance
-                collide = True 
-                break
-        if not collide:
-            humans_pos.append(pos)
-            ## State: (px, py, bvx, bvy, theta, omega)
-            humans_state[i,0] = pos[0]
-            humans_state[i,1] = pos[1]
-            humans_state[i,2] = 0
-            humans_state[i,3] = 0
-            humans_state[i,4] = jnp.pi
-            humans_state[i,5] = 0
-            # Goal: (gx, gy)
-            humans_goal[i,0] = -(traffic_length / 2)-3
-            humans_goal[i,1] = pos[1]
-            break
+    # State: (px, py, bvx, bvy, theta, omega)
+    humans_state[i,0] = circle_radius * jnp.cos(i * angle_width)
+    humans_state[i,1] = circle_radius * jnp.sin(i * angle_width)
+    humans_state[i,2] = 0
+    humans_state[i,3] = 0
+    humans_state[i,4] = -jnp.pi + i * angle_width
+    humans_state[i,5] = 0
+    # Goal: (gx, gy)
+    humans_goal[i,0] = -humans_state[i,0]
+    humans_goal[i,1] = -humans_state[i,1]
 humans_state = jnp.array(humans_state)
 humans_parameters = get_standard_humans_parameters(n_humans)
 humans_goal = jnp.array(humans_goal)
 # Obstacles
-static_obstacles = jnp.array([[[[-traffic_length/2-3,-traffic_height/2-1],[-traffic_length/2-3,-traffic_height/2-0.5]],[[-traffic_length/2-3,-traffic_height/2-0.5],[traffic_length/2,-traffic_height/2-0.5]],[[traffic_length/2,-traffic_height/2-0.5],[traffic_length/2,-traffic_height/2-1]],[[traffic_length/2,-traffic_height/2-1],[-traffic_length/2-3,-traffic_height/2-1]]],
-                              [[[-traffic_length/2-3,traffic_height/2+1],[-traffic_length/2-3,traffic_height/2+0.5]],[[-traffic_length/2-3,traffic_height/2+0.5],[traffic_length/2,traffic_height/2+0.5]],[[traffic_length/2,traffic_height/2+0.5],[traffic_length/2,traffic_height/2+1]],[[traffic_length/2,traffic_height/2+1],[-traffic_length/2-3,traffic_height/2+1]]]])
+humans_state = humans_state.at[1,:].set(humans_state[0,:] + 0.05)
+static_obstacles = jnp.array([[[[jnp.nan,jnp.nan],[jnp.nan,jnp.nan]]]]) # dummy obstacles
 static_obstacles_per_human = jnp.stack([static_obstacles for _ in range(len(humans_state))])
-# Make a human traverse obstacles (all obstacles for him are set to Nan)
-# human_that_traverses_obstacle = 0
-# static_obstacles_per_human = static_obstacles_per_human.at[human_that_traverses_obstacle,:].set(jnp.nan)
 
 # Dummy step - Warm-up (we first compile the JIT functions to avoid counting compilation time later)
 _ = step(humans_state, humans_goal, humans_parameters, static_obstacles_per_human, dt)
@@ -77,7 +59,7 @@ COLORS = list(mcolors.TABLEAU_COLORS.values())
 print("\nPlotting...")
 figure, ax = plt.subplots(figsize=(10,10))
 ax.axis('equal')
-ax.set(xlabel='X',ylabel='Y',xlim=[-traffic_length/2-4,traffic_length/2+1],ylim=[-traffic_height-1,traffic_height+1])
+ax.set(xlabel='X',ylabel='Y',xlim=[-circle_radius-1,circle_radius+1],ylim=[-circle_radius-1,circle_radius+1])
 for h in range(n_humans): 
     ax.plot(all_states[:,h,0], all_states[:,h,1], color=COLORS[h%len(COLORS)], linewidth=0.5, zorder=0)
     ax.scatter(humans_goal[h,0], humans_goal[h,1], marker="*", color=COLORS[h%len(COLORS)], zorder=2)
@@ -89,5 +71,5 @@ for h in range(n_humans):
         num = int(k*dt) if (k*dt).is_integer() else (k*dt)
         ax.text(all_states[k,h,0],all_states[k,h,1], f"{num}", color=COLORS[h%len(COLORS)], va="center", ha="center", size=10, zorder=1, weight='bold')
 for o in static_obstacles: ax.fill(o[:,:,0],o[:,:,1], facecolor='black', edgecolor='black', zorder=3)
-figure.savefig(os.path.join(os.path.dirname(__file__),".images",f"example3.png"), format='png')
+figure.savefig(os.path.join(os.path.dirname(__file__),".images",f"example1.png"), format='png')
 plt.show()
