@@ -9,7 +9,7 @@ from jhsfm.hsfm import step
 from jhsfm.utils import *
 
 # Hyperparameters
-n_humans = 35
+n_humans = 15
 traffic_length = 14
 traffic_height = 3
 dt = 0.01
