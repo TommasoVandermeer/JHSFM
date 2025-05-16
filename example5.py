@@ -13,20 +13,21 @@ from jhsfm.utils import *
 traffic_length = 14
 traffic_height = 3
 dt = 0.01
-end_time = 25
+end_time = 5
 episode = 0
 
 # Initial conditions
 with open(os.path.join(os.path.dirname(__file__),"custom_configurations/parallel_traffic_15_humans.pkl"), 'rb') as f:
     initial_configuration = pickle.load(f)
-humans_state = initial_configuration[episode]["full_state"][:-1]
+humans_state = initial_configuration[episode]["full_state"]
 n_humans = humans_state.shape[0]
 humans_goal = initial_configuration[episode]["humans_goal"]
 humans_parameters = get_standard_humans_parameters(n_humans)
 static_obstacles = initial_configuration[episode]["static_obstacles"]
+static_obstacles_per_human = jnp.stack([static_obstacles for _ in range(len(humans_state))])
 
 # Dummy step - Warm-up (we first compile the JIT functions to avoid counting compilation time later)
-_ = step(humans_state, humans_goal, humans_parameters, static_obstacles, dt)
+_ = step(humans_state, humans_goal, humans_parameters, static_obstacles_per_human, dt)
 
 # Post-update
 @jit
@@ -60,7 +61,7 @@ start_time = time.time()
 all_states = np.empty((steps+1, n_humans, 6), np.float32)
 all_states[0] = humans_state
 for i in range(steps):
-    humans_state = step(humans_state, humans_goal, humans_parameters, static_obstacles, dt)
+    humans_state = step(humans_state, humans_goal, humans_parameters, static_obstacles_per_human, dt)
     humans_goal, humans_parameters, humans_state = _update_traffic_scenarios(humans_goal, humans_parameters, humans_state)
     all_states[i+1] = humans_state
 end_time = time.time()

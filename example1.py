@@ -33,10 +33,11 @@ humans_state = jnp.array(humans_state)
 humans_parameters = get_standard_humans_parameters(n_humans)
 humans_goal = jnp.array(humans_goal)
 # Obstacles
-static_obstacles = jnp.array([[[[1000.,1000.],[1000.,1000.]]]]) # dummy obstacles
+static_obstacles = jnp.array([[[[jnp.nan,jnp.nan],[jnp.nan,jnp.nan]]]]) # dummy obstacles
+static_obstacles_per_human = jnp.stack([static_obstacles for _ in range(len(humans_state))])
 
 # Dummy step - Warm-up (we first compile the JIT functions to avoid counting compilation time later)
-_ = step(humans_state, humans_goal, humans_parameters, static_obstacles, dt)
+_ = step(humans_state, humans_goal, humans_parameters, static_obstacles_per_human, dt)
 
 # Simulation 
 steps = int(end_time/dt)
@@ -46,7 +47,7 @@ start_time = time.time()
 all_states = np.empty((steps+1, n_humans, 6), np.float32)
 all_states[0] = humans_state
 for i in range(steps):
-    humans_state = step(humans_state, humans_goal, humans_parameters, static_obstacles, dt)
+    humans_state = step(humans_state, humans_goal, humans_parameters, static_obstacles_per_human, dt)
     all_states[i+1] = humans_state
 end_time = time.time()
 print("Simulation done! Computation time: ", end_time - start_time)

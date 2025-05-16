@@ -2,6 +2,8 @@ import jax.numpy as jnp
 from jax import jit, vmap, lax, debug, random
 
 # TODO: Add generate random humans parameters function
+# TODO: Add grill cell decomposition for "per human" obstacles filtering
+# TODO: Add function to generate animation of simulation
 
 def get_standard_humans_parameters(n_humans:int):
     """

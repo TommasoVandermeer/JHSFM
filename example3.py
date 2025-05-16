@@ -14,6 +14,7 @@ traffic_length = 14
 traffic_height = 3
 dt = 0.01
 end_time = 5
+np.random.seed(0) # For reproducibility
 
 # Initial conditions
 humans_state = np.zeros((n_humans, 6))
@@ -49,9 +50,13 @@ humans_goal = jnp.array(humans_goal)
 # Obstacles
 static_obstacles = jnp.array([[[[-traffic_length/2-3,-traffic_height/2-1],[-traffic_length/2-3,-traffic_height/2-0.5]],[[-traffic_length/2-3,-traffic_height/2-0.5],[traffic_length/2,-traffic_height/2-0.5]],[[traffic_length/2,-traffic_height/2-0.5],[traffic_length/2,-traffic_height/2-1]],[[traffic_length/2,-traffic_height/2-1],[-traffic_length/2-3,-traffic_height/2-1]]],
                               [[[-traffic_length/2-3,traffic_height/2+1],[-traffic_length/2-3,traffic_height/2+0.5]],[[-traffic_length/2-3,traffic_height/2+0.5],[traffic_length/2,traffic_height/2+0.5]],[[traffic_length/2,traffic_height/2+0.5],[traffic_length/2,traffic_height/2+1]],[[traffic_length/2,traffic_height/2+1],[-traffic_length/2-3,traffic_height/2+1]]]])
+static_obstacles_per_human = jnp.stack([static_obstacles for _ in range(len(humans_state))])
+# Make a human traverse obstacles (all obstacles for him are set to Nan)
+# human_that_traverses_obstacle = 0
+# static_obstacles_per_human = static_obstacles_per_human.at[human_that_traverses_obstacle,:].set(jnp.nan)
 
 # Dummy step - Warm-up (we first compile the JIT functions to avoid counting compilation time later)
-_ = step(humans_state, humans_goal, humans_parameters, static_obstacles, dt)
+_ = step(humans_state, humans_goal, humans_parameters, static_obstacles_per_human, dt)
 
 # Simulation 
 steps = int(end_time/dt)
@@ -61,7 +66,7 @@ start_time = time.time()
 all_states = np.empty((steps+1, n_humans, 6), np.float32)
 all_states[0] = humans_state
 for i in range(steps):
-    humans_state = step(humans_state, humans_goal, humans_parameters, static_obstacles, dt)
+    humans_state = step(humans_state, humans_goal, humans_parameters, static_obstacles_per_human, dt)
     all_states[i+1] = humans_state
 end_time = time.time()
 print("Simulation done! Computation time: ", end_time - start_time)
