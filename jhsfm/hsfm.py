@@ -1,6 +1,8 @@
 import jax.numpy as jnp
 from jax import jit, vmap, lax, debug
 
+# TODO: Add human grid cell filtering for faster step computation
+
 @jit
 def wrap_angle(theta:float) -> float:
     """
@@ -79,7 +81,7 @@ def compute_obstacle_closest_point(reference_point:jnp.ndarray, obstacle:jnp.nda
         closest_points, min_distances = vectorized_compute_edge_closest_point(reference_point, obstacle)
         return closest_points[jnp.argmin(min_distances)]
     closest_point = lax.cond(
-        jnp.isnan(obstacle[0,0,0]), # In case the obstacle is a dummy obstacle (NaN), closest point should be nan
+        jnp.all(jnp.isnan(obstacle)), # In case the obstacle is a dummy obstacle (NaN), closest point should be nan
         lambda _: jnp.full((2,), jnp.nan),
         lambda _: _not_nan(reference_point, obstacle),
         None)
@@ -112,13 +114,11 @@ def pairwise_social_force(human_state:jnp.ndarray, other_human_state:jnp.ndarray
         delta_vij = jnp.dot(other_human_linear_velocity - human_linear_velocity, tij)
         pairwise_social_force = (parameters[4] * jnp.exp(real_dist / parameters[6]) + parameters[12] * jnp.max(jnp.array([0, real_dist]))) * nij + (parameters[8] * jnp.exp(real_dist / parameters[10]) + parameters[13] * jnp.max(jnp.array([0, real_dist])) * delta_vij) * tij
         return pairwise_social_force
-    
     pairwise_social_force = lax.cond(
         jnp.all(human_state == other_human_state), # In case the human is the same as the other human, social force should not be computed
         lambda _: jnp.zeros((2,)),
         lambda _: compute_social_force(human_state, other_human_state, parameters, other_human_parameters),
         None)
-    
     return pairwise_social_force
 vectorized_pairwise_social_force = vmap(pairwise_social_force, in_axes=(None, 0, None, 0))
 

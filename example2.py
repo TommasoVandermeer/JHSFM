@@ -17,7 +17,7 @@ humans_state = np.array([[7.,0.,0.,0.,jnp.pi,0.],
                          [6.8,-0.8,0.,0.,jnp.pi,0.],
                          [6.5,1.5,0.,0.,jnp.pi,0.],
                          [6.5,-1.5,0.,0.,jnp.pi,0.]])
-# Static obstacles - example adding some padding edges as dimensions should be equal for the static obstacles array but obstacles may have different number of edges
+# Static obstacles - example adding some padding edges as dimensions should be equal for the static_obstacles array but obstacles may have different number of edges and could be dfferentiated for each human (for optimization)
 static_obstacles = jnp.array([
     [[[-0.1,0.5],[0.1,0.5]],[[0.1,0.5],[0.1,3]],[[0.1,3],[-0.1,3]],[[-0.1,3],[-0.1,0.5]],[[jnp.nan,jnp.nan],[jnp.nan, jnp.nan]]],
     [[[-0.1,-0.5],[0.1,-0.5]],[[0.1,-0.5],[0.1,-3]],[[0.1,-3],[-0.1,-3]],[[-0.1,-3],[-0.1,-0.5]],[[jnp.nan,jnp.nan],[jnp.nan, jnp.nan]]],
@@ -73,5 +73,7 @@ for h in range(len(humans_state)):
         num = int(k*dt) if (k*dt).is_integer() else (k*dt)
         ax.text(all_states[k,h,0],all_states[k,h,1], f"{num}", color=COLORS[h%len(COLORS)], va="center", ha="center", size=10, zorder=1, weight='bold')
 for o in static_obstacles: ax.fill(o[:,:,0],o[:,:,1], facecolor='black', edgecolor='black', zorder=3)
+if not os.path.exists(os.path.join(os.path.dirname(__file__),".images")):
+    os.makedirs(os.path.join(os.path.dirname(__file__),".images"))
 figure.savefig(os.path.join(os.path.dirname(__file__),".images",f"example2.png"), format='png')
 plt.show()
