@@ -106,10 +106,11 @@ static_obstacles = jnp.array([
     [[[5., 19.,], [5.5, 19.,]], [[5.5, 19.,], [5.5, 19.5]], [[5.5, 19.5], [5., 19.5]], [[5., 19.5], [5., 19.]]],
     [[[-7., -20.,], [-6.5, -20.,]], [[-6.5, -20.,], [-6.5, -19.]], [[-6.5, -19.], [-7., -19.,]], [[-7., -19.,], [-7., -20.]]],
 ])
-grid_occupancy, grid_coords = grid_cell_obstacle_occupancy(static_obstacles, grid_cell_size, grid_distance_threshold)
+static_obstacles_per_cell, new_static_obstacles, grid_coords = grid_cell_obstacle_occupancy(static_obstacles, grid_cell_size, grid_distance_threshold)
 print(f"Number of humans: {len(humans_state)}")
 print(f"Number of static obstacles: {len(static_obstacles)}")
-print(f"Number of grid cells: {grid_occupancy.shape[0]} x {grid_occupancy.shape[1]} = {grid_occupancy.shape[0]*grid_occupancy.shape[1]}")
+print(f"Number of grid cells: {static_obstacles_per_cell.shape[0]} x {static_obstacles_per_cell.shape[1]} = {static_obstacles_per_cell.shape[0]*static_obstacles_per_cell.shape[1]}")
+print(f"Max n of obstacles per grid cell: {static_obstacles_per_cell.shape[2]}")
 print(f"Grid cell size: {grid_cell_size}")
 print(f"Grid distance threshold: {grid_distance_threshold}")
 
@@ -126,35 +127,42 @@ humans_goal = jnp.array(humans_goal)
 
 # Dummy step - Warm-up (we first compile the JIT functions to avoid counting compilation time later)
 dummy_static_obstacles = jnp.stack([static_obstacles for _ in range(len(humans_state))])
-_ = step(humans_state, humans_goal, humans_parameters, dummy_static_obstacles, dt)
-_ = filter_obstacles(humans_state, static_obstacles, grid_occupancy, grid_coords, grid_cell_size)
+_ = step.lower(humans_state, humans_goal, humans_parameters, dummy_static_obstacles, dt).compile()
+_ = filter_obstacles.lower(humans_state, new_static_obstacles, static_obstacles_per_cell, grid_coords, grid_cell_size).compile()
 print(f"\nAvailable devices: {jax.devices()}\n")
 steps = int(end_time/dt)
-
-# Simulation FILTERING OBSTACLES
-print(f"Starting simulation FILTERING OBSTACLES... - Simulation time: {steps*dt} seconds")
-start_time = time.time()
-for i in range(steps):
-    filtered_static_obstacles = filter_obstacles(humans_state, static_obstacles, grid_occupancy, grid_coords, grid_cell_size)
-    humans_state = step(humans_state, humans_goal, humans_parameters, filtered_static_obstacles, dt)
-end_time = time.time()
-print("Simulation done! Computation time: ", end_time - start_time)
+n_simulations = 100
 
 # Simulation NOT FILTERING OBSTACLES
-humans_state = jnp.copy(initial_humans_state)
-print(f"\nStarting simulation NOT FILTERING OBSTACLES... - Simulation time: {steps*dt} seconds")
+print(f"Starting simulation NOT FILTERING OBSTACLES... - N° simulations {n_simulations} - Simulation time: {steps*dt} seconds")
 start_time = time.time()
-for i in range(steps):
-    humans_state = step(humans_state, humans_goal, humans_parameters, dummy_static_obstacles, dt)
+for _ in range(n_simulations):
+    humans_state = jnp.copy(initial_humans_state)
+    for _ in range(steps):
+        humans_state = step(humans_state, humans_goal, humans_parameters, dummy_static_obstacles, dt)
+        humans_state.block_until_ready() # Wait for the computation to finish
 end_time = time.time()
-print("Simulation done! Computation time: ", end_time - start_time)
+print("Simulations done! Average execution time per simulation: ", (end_time - start_time)/n_simulations)
+
+# Simulation FILTERING OBSTACLES
+humans_state = jnp.copy(initial_humans_state)
+print(f"\nStarting simulation FILTERING OBSTACLES... - N° simulations {n_simulations} - Simulation time: {steps*dt} seconds")
+start_time = time.time()
+for _ in range(n_simulations):
+    humans_state = jnp.copy(initial_humans_state)
+    for _ in range(steps):
+        filtered_static_obstacles = filter_obstacles(humans_state, new_static_obstacles, static_obstacles_per_cell, grid_coords, grid_cell_size)
+        humans_state = step(humans_state, humans_goal, humans_parameters, filtered_static_obstacles, dt)
+        humans_state.block_until_ready() # Wait for the computation to finish
+end_time = time.time()
+print("Simulations done! Average execution time per simulation: ", (end_time - start_time)/n_simulations)
 
 # Simulation saving state for plotting
 humans_state = jnp.copy(initial_humans_state)
 all_states = np.empty((steps+1, len(humans_state), 6), np.float32)
 all_states[0] = humans_state
 for i in range(steps):
-    filtered_static_obstacles = filter_obstacles(humans_state, static_obstacles, grid_occupancy, grid_coords, grid_cell_size)
+    filtered_static_obstacles = filter_obstacles(humans_state, new_static_obstacles, static_obstacles_per_cell, grid_coords, grid_cell_size)
     humans_state = step(humans_state, humans_goal, humans_parameters, filtered_static_obstacles, dt)
     all_states[i+1] = humans_state
 end_time = time.time()

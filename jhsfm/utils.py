@@ -1,5 +1,6 @@
 import jax.numpy as jnp
 from jax import jit, vmap, lax, debug, random
+from functools import partial
 
 # TODO: Add generate random humans parameters function
 # TODO: Add function to generate animation of simulation
@@ -28,9 +29,10 @@ def grid_cell_obstacle_occupancy(static_obstacles:jnp.ndarray, cell_size:float, 
     - distance_threshold: int - Distance threshold (in cells) to consider a cell occupied by an obstacle.
 
     outputs:
-    - grid_cell_occupancy: jnp.ndarray of booleans of shape (n+distance_threshold,n+distance_threshold,len(static_obstacles)) 
+    - static_obstacles_for_each_cell: jnp.ndarray of booleans of shape (n+distance_threshold,n+distance_threshold,max_static_obstacles) 
                            where n is the max number of cells necessary to cover all obstacles 
                            in the x and y direction - Grid cell occupancy map for the static obstacles.
+    - new_static_obstacles: jnp.ndarray of shape (n_obstacles+1, n_edges, 2, 2) - Static obstacles in the simulation. WARNING: Last row is a dummy nan obstacle.
     - grid_cell_coords: jnp.ndarray of shape (n+distance_threshold,n+distance_threshold,2) - Coordinates of the min point of grid cells.
     """
     # Flatten all obstacle points
@@ -66,6 +68,25 @@ def grid_cell_obstacle_occupancy(static_obstacles:jnp.ndarray, cell_size:float, 
                 y_min = max(0, y - distance_threshold)
                 y_max = min(grid_shape[1], y + distance_threshold + 1)
                 grid = grid.at[x_min:x_max, y_min:y_max, obs_idx].set(True)
+    # Compute max number of obstacles in the cells
+    max_obstacles_per_cell = int(jnp.max(jnp.sum(grid, axis=2)))
+    # Compute indices of obstacles for each cell
+    static_obstacles_for_each_cell = jnp.full(
+        (grid_shape[0], grid_shape[1], max_obstacles_per_cell),
+        jnp.nan,
+    )
+    for i in range(grid_shape[0]):
+        for j in range(grid_shape[1]):
+            cell_occupancy = grid[i, j]
+            obs_indices = jnp.where(cell_occupancy)[0]
+            selected_obstacles = obs_indices
+            n_selected = selected_obstacles.shape[0]
+            # Pad if needed
+            if n_selected < max_obstacles_per_cell:
+                pad_shape = (max_obstacles_per_cell - n_selected)
+                pad = jnp.full(pad_shape, len(static_obstacles), dtype=static_obstacles.dtype)
+                selected_obstacles = jnp.concatenate([selected_obstacles, pad], axis=0)
+            static_obstacles_for_each_cell = static_obstacles_for_each_cell.at[i, j].set(selected_obstacles)
     # Compute the min coordinate of each cell in the grid
     # grid shape: (nx, ny, n_obstacles)
     nx, ny = grid_shape
@@ -73,13 +94,16 @@ def grid_cell_obstacle_occupancy(static_obstacles:jnp.ndarray, cell_size:float, 
     y_coords = jnp.arange(ny) * cell_size + (min_xy[1] - distance_threshold) * cell_size
     # Create a meshgrid of cell min coordinates (nx, ny, 2)
     grid_cell_coords = jnp.stack(jnp.meshgrid(x_coords, y_coords, indexing='ij'), axis=-1)
-    return grid, grid_cell_coords
+    # Append nan_obstacle to the static_obstacles array
+    nan_obstacle = jnp.full((1, static_obstacles.shape[1], 2, 2), jnp.nan)
+    new_static_obstacles = jnp.concatenate([static_obstacles, nan_obstacle], axis=0)
+    return static_obstacles_for_each_cell, new_static_obstacles, grid_cell_coords
 
 @jit
 def filter_obstacles(
     humans_state:jnp.ndarray, 
-    static_obstacles:jnp.ndarray, 
-    grid_occupancy:jnp.ndarray, 
+    static_obstacles:jnp.ndarray,
+    static_obstacles_per_cell:jnp.ndarray, 
     grid_coords:jnp.ndarray, 
     cell_size:float
 ) -> jnp.ndarray:
@@ -88,36 +112,26 @@ def filter_obstacles(
 
     args:
     - humans_state: jnp.ndarray of shape (n_humans, 6) - Current state of the humans in the simulation.
-    - static_obstacles: jnp.ndarray of shape (n_obstacles, n_edges, 2, 2) - Static obstacles in the simulation.
-    - grid_occupancy: jnp.ndarray of booleans of shape (n+distance_threshold,n+distance_threshold,len(static_obstacles)) 
-                        where n is the max number of cells necessary to cover all obstacles 
-                        in the x and y direction - Grid cell occupancy map for the static obstacles.
+    - static_obstacles: jnp.ndarray of shape (n_obstacles+1, n_edges, 2, 2) - Static obstacles in the simulation. WARNING: Last row is a dummy nan obstacle.
+    - static_obstacles_per_cell: jnp.ndarray of shape (n+distance_threshold,n+distance_threshold, max_obstacles_per_cell) - Obstacles indices for each grid cell.
     - grid_coords: jnp.ndarray of shape (n+distance_threshold,n+distance_threshold,2) - Coordinates of the min point of grid cells.
     - cell_size: float - Resolution of the grid cells.
 
     outputs:
-    - filtered_static_obstacles: jnp.ndarray of shape (n_humans, n_obstacles, n_edges, 2, 2) - Filtered static obstacles for each human.
+    - filtered_static_obstacles: jnp.ndarray of shape (n_humans, max_obstacles_per_cell, n_edges, 2, 2) - Filtered static obstacles for each human.
     """
-    # Get human positions
     human_positions = humans_state[:, :2]
-    # Get grid cell indices for each human
-    grid_origin = grid_coords[0, 0]  # shape (2,)
+    grid_origin = grid_coords[0, 0]
     human_grid_indices = jnp.floor((human_positions - grid_origin) / cell_size).astype(int)
+
     @jit
-    def get_human_obstacles(human_grid_index:jnp.ndarray, grid_occupancy:jnp.ndarray, static_obstacles:jnp.ndarray):
-        # Get the grid cell indices for the human
+    def get_human_obstacles(human_grid_index, static_obstacles_per_cell):
         x, y = human_grid_index
-        # Get the occupied cells around the human
-        obstacles_in_occupied_cell = lax.cond(
-            (x < 0) | (y < 0) | (x >= grid_occupancy.shape[0]) | (y >= grid_occupancy.shape[1]),
-            lambda _: jnp.zeros((len(static_obstacles),), dtype=bool),
-            lambda _: grid_occupancy[x, y],
-            None
-        )
-        # Create a mask for the first dimension (obstacle index)
-        mask = obstacles_in_occupied_cell[:, None, None, None]
-        nan_obstacles = jnp.full_like(static_obstacles, jnp.nan)
-        filtered_static_obstacles = jnp.where(mask, static_obstacles, nan_obstacles)
-        return filtered_static_obstacles
-    filtered_static_obstacles = vmap(get_human_obstacles, in_axes=(0, None, None))(human_grid_indices, grid_occupancy, static_obstacles)
+        valid = (x >= 0) & (y >= 0) & (x < static_obstacles_per_cell.shape[0]) & (y < static_obstacles_per_cell.shape[1])
+        nan_obstacles = jnp.full((static_obstacles_per_cell.shape[2],) + static_obstacles.shape[1:], jnp.nan)
+        indices = static_obstacles_per_cell[x, y].astype(jnp.int32)
+        obstacles = jnp.where(valid, static_obstacles[indices], nan_obstacles)
+        return obstacles
+
+    filtered_static_obstacles = vmap(get_human_obstacles, in_axes=(0, None))(human_grid_indices, static_obstacles_per_cell)
     return filtered_static_obstacles
