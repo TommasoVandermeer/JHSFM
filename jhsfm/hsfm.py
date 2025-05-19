@@ -43,8 +43,8 @@ def compute_edge_closest_point(reference_point:jnp.ndarray, edge:jnp.ndarray):
     - edge: shape is (2, 2) where each edge includes its two vertices (p1, p2) composed by two coordinates (x, y)
 
     output:
-    - closest_points: shape is (2,) in the form (cx, cy)
-    - min_distances: min distance to the closest point
+    - closest_point: shape is (2,) in the form (cx, cy)
+    - min_distance: min distance to the closest point
     """
     @jit
     def _not_nan(reference_point:jnp.ndarray, edge:jnp.ndarray):
@@ -102,6 +102,7 @@ def pairwise_social_force(human_state:jnp.ndarray, other_human_state:jnp.ndarray
     output:
     - social_force: shape is (2,) in the form (fx, fy)
     """
+    @jit
     def compute_social_force(human_state:jnp.ndarray, other_human_state:jnp.ndarray, parameters:jnp.ndarray, other_human_parameters:jnp.ndarray):
         rij = parameters[0] + other_human_parameters[0] + parameters[18] + other_human_parameters[18]
         diff = human_state[:2] - other_human_state[:2]
@@ -205,7 +206,7 @@ def single_update(idx:int, humans_state:jnp.ndarray, human_goal:jnp.ndarray, par
     # Torque computation
     input_force = desired_force + social_force + obstacle_force
     input_force_norm = jnp.linalg.norm(input_force)
-    input_force_norm = jnp.min(jnp.array([input_force_norm, 1000])) # Limit force to avoid numerical issues
+    input_force_norm = jnp.min(jnp.array([input_force_norm, 100 * self_parameters[1]])) # Limit force to avoid numerical issues
     input_force_angle = jnp.arctan2(input_force[1], input_force[0])
     inertia = (self_parameters[1] * self_parameters[0] * self_parameters[0]) / 2
     k_theta = inertia * self_parameters[17] * input_force_norm
