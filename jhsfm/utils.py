@@ -1,5 +1,4 @@
 import jax.numpy as jnp
-import numpy as np
 from jax import jit, vmap, lax, debug, random
 from functools import partial
 
@@ -100,13 +99,13 @@ def grid_cell_obstacle_occupancy(static_obstacles:jnp.ndarray, cell_size:float, 
     new_static_obstacles = jnp.concatenate([static_obstacles, nan_obstacle], axis=0)
     return static_obstacles_for_each_cell, new_static_obstacles, grid_cell_coords
 
-@jit
+@partial(jit, static_argnames=('cell_size'))
 def filter_obstacles(
     humans_state:jnp.ndarray, 
     static_obstacles:jnp.ndarray,
     static_obstacles_per_cell:jnp.ndarray, 
     grid_coords:jnp.ndarray, 
-    cell_size:float
+    cell_size:float,
 ) -> jnp.ndarray:
     """
     Filters the static obstacles for each human based on their position and the grid occupancy map.

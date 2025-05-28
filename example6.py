@@ -129,7 +129,8 @@ humans_goal = jnp.array(humans_goal)
 # Dummy step - Warm-up (we first compile the JIT functions to avoid counting compilation time later)
 dummy_static_obstacles = jnp.stack([static_obstacles for _ in range(len(humans_state))])
 _ = step.lower(humans_state, humans_goal, humans_parameters, dummy_static_obstacles, dt).compile()
-_ = filter_obstacles.lower(humans_state, new_static_obstacles, static_obstacles_per_cell, grid_coords, grid_cell_size).compile()
+test_obstacles = filter_obstacles(humans_state, new_static_obstacles, static_obstacles_per_cell, grid_coords, grid_cell_size)
+_ = step.lower(humans_state, humans_goal, humans_parameters, test_obstacles, dt).compile()
 print(f"\nAvailable devices: {jax.devices()}\n")
 
 # # Profile step function
