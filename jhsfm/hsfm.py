@@ -1,5 +1,8 @@
 import jax.numpy as jnp
 from jax import jit, vmap, lax, debug
+from functools import partial
+
+from jhsfm.utils import *
 
 # TODO: Add human grid cell filtering for faster step computation
 
@@ -18,7 +21,7 @@ def wrap_angle(theta:float) -> float:
     return wrapped_theta
 
 @jit
-def get_linear_velocity(theta:float, body_velocity: jnp.ndarray) -> jnp.ndarray:
+def get_linear_velocity(theta:float, body_velocity:jnp.ndarray) -> jnp.ndarray:
     """
     This function computes the linear velocity of the agent in the world frame
     
@@ -155,7 +158,7 @@ def compute_obstacle_force(human_state:jnp.ndarray, obstacle:jnp.ndarray, parame
     return obstacle_force
 vectorized_compute_obstacle_force = vmap(compute_obstacle_force, in_axes=(None, 0, None))
 
-@jit
+@partial(jit, static_argnames=("dt"))
 def single_update(idx:int, humans_state:jnp.ndarray, human_goal:jnp.ndarray, parameters:jnp.ndarray, obstacles:jnp.ndarray, dt:float) -> jnp.ndarray:
     """
     This functions makes a step in time (of length dt) for a single human using the Headed Social Force Model (HSFM) with 
@@ -247,7 +250,7 @@ def single_update(idx:int, humans_state:jnp.ndarray, human_goal:jnp.ndarray, par
     return updated_human_state
 vectorized_single_update = vmap(single_update, in_axes=(0, None, 0, None, 0, None))
 
-@jit
+@partial(jit, static_argnames=("dt"))
 def step(humans_state:jnp.ndarray, humans_goal:jnp.ndarray, parameters:jnp.ndarray, obstacles:jnp.ndarray, dt:float) -> jnp.ndarray:
     """
     This functions makes a step in time (of length dt) for the humans' state using the Headed Social Force Model (HSFM) with 

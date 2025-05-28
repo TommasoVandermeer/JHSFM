@@ -1,4 +1,5 @@
 import jax.numpy as jnp
+import numpy as np
 from jax import jit, vmap, lax, debug, random
 from functools import partial
 
@@ -131,6 +132,7 @@ def filter_obstacles(
         nan_obstacles = jnp.full((static_obstacles_per_cell.shape[2],) + static_obstacles.shape[1:], jnp.nan)
         indices = static_obstacles_per_cell[x, y].astype(jnp.int32)
         obstacles = jnp.where(valid, static_obstacles[indices], nan_obstacles)
+        # obstacle_indices = jnp.where(valid, indices, jnp.full_like(indices, static_obstacles.shape[0] - 1))
         return obstacles
 
     filtered_static_obstacles = vmap(get_human_obstacles, in_axes=(0, None))(human_grid_indices, static_obstacles_per_cell)

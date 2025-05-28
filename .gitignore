@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Additional ignores
+.perfetto_traces/
+
 # C extensions
 *.so
 

@@ -14,6 +14,14 @@ grid_cell_size = 1
 grid_distance_threshold = 1
 dt = 0.01
 end_time = 15
+num_obstacles = 1400
+obstacle_min_size = 0.3
+obstacle_max_size = 1.0
+# Prepare simulation data
+steps = int(end_time/dt)
+n_simulations = 1
+
+# Humans state - example with 43 humans in a line
 humans_state = np.array([
     [7.,0.,0.,0.,jnp.pi,0.],
     [6.8,0.8,0.,0.,jnp.pi,0.],
@@ -60,53 +68,27 @@ humans_state = np.array([
     [1.8,-15.8,0.,0.,jnp.pi,0.],
 ])
 # Static obstacles - example adding some padding edges as dimensions should be equal for the static_obstacles array but obstacles may have different number of edges and could be dfferentiated for each human (for optimization)
-static_obstacles = jnp.array([
-    [[[-0.1,0.5],[0.1,0.5]],[[0.1,0.5],[0.1,3]],[[0.1,3],[-0.1,3]],[[-0.1,3],[-0.1,0.5]]],
-    [[[-0.1,-0.5],[0.1,-0.5]],[[0.1,-0.5],[0.1,-3]],[[0.1,-3],[-0.1,-3]],[[-0.1,-3],[-0.1,-0.5]]],
-    [[[2.0, 2.0], [2.5, 2.0]], [[2.5, 2.0], [2.5, 2.5]], [[2.5, 2.5], [2.0, 2.5]], [[2.0, 2.5], [2.0, 2.0]]],
-    [[[3.0, -2.0], [3.5, -2.0]], [[3.5, -2.0], [3.5, -1.5]], [[3.5, -1.5], [3.0, -1.5]], [[3.0, -1.5], [3.0, -2.0]]],
-    [[[-4.0, 1.0], [-3.5, 1.0]], [[-3.5, 1.0], [-3.5, 1.5]], [[-3.5, 1.5], [-4.0, 1.5]], [[-4.0, 1.5], [-4.0, 1.0]]],
-    [[[0.0, 4.0], [0.5, 4.0]], [[0.5, 4.0], [0.5, 4.5]], [[0.5, 4.5], [0.0, 4.5]], [[0.0, 4.5], [0.0, 4.0]]],
-    [[[-2.0, -3.0], [-1.5, -3.0]], [[-1.5, -3.0], [-1.5, -2.5]], [[-1.5, -2.5], [-2.0, -2.5]], [[-2.0, -2.5], [-2.0, -3.0]]],
-    [[[5.0, 0.0], [5.5, 0.0]], [[5.5, 0.0], [5.5, 0.5]], [[5.5, 0.5], [5.0, 0.5]], [[5.0, 0.5], [5.0, 0.0]]],
-    [[[-6.0, -1.0], [-5.5, -1.0]], [[-5.5, -1.0], [-5.5, -0.5]], [[-5.5, -0.5], [-6.0, -0.5]], [[-6.0, -0.5], [-6.0, -1.0]]],
-    [[[1.0, -5.0], [1.5, -5.0]], [[1.5, -5.0], [1.5, -4.5]], [[1.5, -4.5], [1.0, -4.5]], [[1.0, -4.5], [1.0, -5.0]]],
-    [[[-3.0, 5.0], [-2.5, 5.0]], [[-2.5, 5.0], [-2.5, 5.5]], [[-2.5, 5.5], [-3.0, 5.5]], [[-3.0, 5.5], [-3.0, 5.0]]],
-    [[[4.0, -4.0], [4.5, -4.0]], [[4.5, -4.0], [4.5, -3.5]], [[4.5, -3.5], [4.0, -3.5]], [[4.0, -3.5], [4.0, -4.0]]],
-    [[[-5.0, 3.0], [-4.5, 3.0]], [[-4.5, 3.0], [-4.5, 3.5]], [[-4.5, 3.5], [-5.0, 3.5]], [[-5.0, 3.5], [-5.0, 3.0]]],
-    [[[0.0, -6.0], [0.5, -6.0]], [[0.5, -6.0], [0.5, -5.5]], [[0.5, -5.5], [0.0, -5.5]], [[0.0, -5.5], [0.0, -6.0]]],
-    [[[-1.0, 6.0], [-0.5, 6.0]], [[-0.5, 6.0], [-0.5, 6.5]], [[-0.5, 6.5], [-1.0, 6.5]], [[-1.0, 6.5], [-1.0, 6.0]]],
-    [[[2.0, -7.0], [2.5, -7.0]], [[2.5, -7.0], [2.5, -6.5]], [[2.5, -6.5], [2.0, -6.5]], [[2.0, -6.5], [2.0, -7.0]]],
-    [[[-4.0, 7.0], [-3.5, 7.0]], [[-3.5, 7.0], [-3.5, 7.5]], [[-3.5, 7.5], [-4., 7.,]], [[-4., 7.,], [-4., 7.,]]],
-    [[[3.0, 5.0], [3.5, 5.0]], [[3.5, 5.0], [3.5, 5.5]], [[3.5, 5.5], [3.0, 5.5]], [[3.0, 5.5], [3.0, 5.0]]],
-    [[[-6.0, -2.0], [-5.5, -2.0]], [[-5.5, -2.0], [-5.5, -1.5]], [[-5.5, -1.5], [-6., -1.,]], [[-6., -1.,], [-6., -2.,]]],
-    [[[1.0, 6.0], [1.5, 6.0]], [[1.5, 6.0], [1.5, 6.5]], [[1.5, 6.5], [1.0, 6.5]], [[1.0, 6.5], [1.0, 6.0]]],
-    [[[-2.0, -7.0], [-1.5, -7.0]], [[-1.5, -7.0], [-1.5, -6.5]], [[-1.5, -6.5], [-2., -6.,]], [[-2., -6.,], [-2., -7.,]]],
-    [[[-3.0, -8.0], [-2.5, -8.0]], [[-2.5, -8.0], [-2.5, -7.5]], [[-2.5, -7.5], [-3., -7.,]], [[-3., -7.,], [-3., -8.,]]],
-    [[[-1.0, -9.0], [-0.5, -9.0]], [[-0.5, -9.0], [-0.5, -8.5]], [[-0.5, -8.5], [-1., -8.,]], [[-1., -8.,], [-1., -9.,]]],
-    [[[2.0, 8.0], [2.5, 8.0]], [[2.5, 8.0], [2.5, 8.5]], [[2.5, 8.5], [2., 8.,]], [[2., 8.,], [2., 8.,]]],
-    [[[-4., -9.,], [-3., -9.,]], [[-3., -9.,], [-3., -8.,]], [[-3., -8.,], [-4., -8.,]], [[-4., -8.,], [-4., -9.]]],
-    [[[3., 8.,], [3.5, 8.,]], [[3.5, 8.,], [3.5, 8.5]], [[3.5, 8.5], [3., 8.5]], [[3., 8.5], [3., 8.]]],
-    [[[-6., -10.,], [-5., -10.,]], [[-5., -10.,], [-5., -9.]], [[-5., -9.], [-6., -9.,]], [[-6., -9.,], [-6., -10.]]],
-    [[[1., 9.,], [1.5, 9.,]], [[1.5, 9.,], [1.5, 9.5]], [[1.5, 9.5], [1., 9.5]], [[1., 9.5], [1., 9.]]],
-    [[[-2., -11.,], [-1.5, -11.,]], [[-1.5, -11.,], [-1.5, -10.]], [[-1.5, -10.], [-2., -10.,]], [[-2., -10.,], [-2., -11.]]],
-    [[[0., 10.,], [0.5, 10.,]], [[0.5, 10.,], [0.5, 10.5]], [[0.5, 10.5], [0., 10.5]], [[0., 10.5], [0., 10.]]],
-    [[[-3., -12.,], [-2.5, -12.,]], [[-2.5, -12.,], [-2.5, -11.]], [[-2.5, -11.], [-3., -11.,]], [[-3., -11.,], [-3., -12.]]],
-    [[[2., 11.,], [2.5, 11.,]], [[2.5, 11.,], [2.5, 11.5]], [[2.5, 11.5], [2., 11.5]], [[2., 11.5], [2., 11.]]],
-    [[[-4., -13.,], [-3.5, -13.,]], [[-3.5, -13.,], [-3.5, -12.]], [[-3.5, -12.], [-4., -12.,]], [[-4., -12.,], [-4., -13.]]],
-    [[[-7., -14.,], [-6.5, -14.,]], [[-6.5, -14.,], [-6.5, -13.]], [[-6.5, -13.], [-7., -13.,]], [[-7., -13.,], [-7., -14.]]],
-    [[[-5., 13.,], [-4.5, 13.,]], [[-4.5, 13.,], [-4.5, 13.5]], [[-4.5, 13.5], [-5., 13.5]], [[-5., 13.5], [-5., 13.]]],
-    [[[-1., 14.,], [-0.5, 14.,]], [[-0.5, 14.,], [-0.5, 14.5]], [[-0.5, 14.5], [-1., 14.5]], [[-1., 14.5], [-1., 14.]]],
-    [[[-3., 15.,], [-2.5, 15.,]], [[-2.5, 15.,], [-2.5, 15.5]], [[-2.5, 15.5], [-3., 15.5]], [[-3., 15.5], [-3., 15.]]],
-    [[[0., -16.,], [0.5, -16.,]], [[0.5, -16.,], [0.5, -15.]], [[0.5, -15.], [0., -15.,]], [[0., -15.,], [0., -16.]]],
-    [[[-2., 16.,], [-1.5, 16.,]], [[-1.5, 16.,], [-1.5, 16.5]], [[-1.5, 16.5], [-2., 16.5]], [[-2., 16.5], [-2., 16.]]],
-    [[[3., 17.,], [3.5, 17.,]], [[3.5, 17.,], [3.5, 17.5]], [[3.5, 17.5], [3., 17.5]], [[3., 17.5], [3., 17.]]],
-    [[[-4., -18.,], [-3.5, -18.,]], [[-3.5, -18.,], [-3.5, -17.]], [[-3.5, -17.], [-4., -17.,]], [[-4., -17.,], [-4., -18.]]],
-    [[[1., 18.,], [1.5, 18.,]], [[1.5, 18.,], [1.5, 18.5]], [[1.5, 18.5], [1., 18.5]], [[1., 18.5], [1., 18.]]],
-    [[[-10., -19.,], [-9.5, -19.,]], [[-9.5, -19.,], [-9.5, -18.]], [[-9.5, -18.], [-10., -18.,]], [[-10., -18.,], [-10., -19.]]],
-    [[[5., 19.,], [5.5, 19.,]], [[5.5, 19.,], [5.5, 19.5]], [[5.5, 19.5], [5., 19.5]], [[5., 19.5], [5., 19.]]],
-    [[[-7., -20.,], [-6.5, -20.,]], [[-6.5, -20.,], [-6.5, -19.]], [[-6.5, -19.], [-7., -19.,]], [[-7., -19.,], [-7., -20.]]],
-])
+# Generate random 4-edge rectangular obstacles in x ∈ (-30, 0), y ∈ (-30, 30)
+rng = np.random.default_rng(42)
+static_obstacles = []
+for _ in range(num_obstacles):
+    cx = rng.uniform(-30, 0)
+    cy = rng.uniform(-30, 30)
+    w = rng.uniform(obstacle_min_size, obstacle_max_size)
+    h = rng.uniform(obstacle_min_size, obstacle_max_size)
+    # Rectangle corners (clockwise)
+    p1 = [cx - w/2, cy - h/2]
+    p2 = [cx + w/2, cy - h/2]
+    p3 = [cx + w/2, cy + h/2]
+    p4 = [cx - w/2, cy + h/2]
+    # 4 edges as pairs of points
+    static_obstacles.append([
+        [p1, p2],
+        [p2, p3],
+        [p3, p4],
+        [p4, p1]
+    ])
+static_obstacles = jnp.array(static_obstacles)
 static_obstacles_per_cell, new_static_obstacles, grid_coords = grid_cell_obstacle_occupancy(static_obstacles, grid_cell_size, grid_distance_threshold)
 print(f"Number of humans: {len(humans_state)}")
 print(f"Number of static obstacles: {len(static_obstacles)}")
@@ -128,21 +110,10 @@ humans_goal = jnp.array(humans_goal)
 
 # Dummy step - Warm-up (we first compile the JIT functions to avoid counting compilation time later)
 dummy_static_obstacles = jnp.stack([static_obstacles for _ in range(len(humans_state))])
-_ = step.lower(humans_state, humans_goal, humans_parameters, dummy_static_obstacles, dt).compile()
-_ = filter_obstacles.lower(humans_state, new_static_obstacles, static_obstacles_per_cell, grid_coords, grid_cell_size).compile()
+_ = step(humans_state, humans_goal, humans_parameters, dummy_static_obstacles, dt)
+test_obstacles = filter_obstacles(humans_state, new_static_obstacles, static_obstacles_per_cell, grid_coords, grid_cell_size)
+_ = step(humans_state, humans_goal, humans_parameters, test_obstacles, dt)
 print(f"\nAvailable devices: {jax.devices()}\n")
-
-# # Profile step function
-# if not os.path.exists(os.path.join(os.path.dirname(__file__),".perfetto_traces")):
-#     os.makedirs(os.path.join(os.path.dirname(__file__),".perfetto_traces"))
-# with jax.profiler.trace(os.path.join(os.path.dirname(__file__),".perfetto_traces"), create_perfetto_link=True):
-#   # Run the operations to be profiled
-#   test = step(humans_state, humans_goal, humans_parameters, dummy_static_obstacles, dt)
-#   test.block_until_ready()
-
-# Prepare simulation data
-steps = int(end_time/dt)
-n_simulations = 100
 
 # Simulation NOT FILTERING OBSTACLES
 print(f"Starting simulation NOT FILTERING OBSTACLES... - N° simulations {n_simulations} - Simulation time: {steps*dt} seconds")
@@ -202,5 +173,5 @@ for h in range(len(humans_state)):
 for o in static_obstacles: ax.fill(o[:,:,0],o[:,:,1], facecolor='black', edgecolor='black', zorder=3)
 if not os.path.exists(os.path.join(os.path.dirname(__file__),".images")):
     os.makedirs(os.path.join(os.path.dirname(__file__),".images"))
-figure.savefig(os.path.join(os.path.dirname(__file__),".images",f"example6.png"), format='png')
+figure.savefig(os.path.join(os.path.dirname(__file__),".images",f"example7.png"), format='png')
 plt.show()
