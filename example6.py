@@ -59,6 +59,8 @@ humans_state = np.array([
     [1.8,15.8,0.,0.,jnp.pi,0.],
     [1.8,-15.8,0.,0.,jnp.pi,0.],
 ])
+n_humans = len(humans_state)
+humans_visibility = jnp.fill_diagonal(jnp.ones((n_humans,n_humans)), jnp.zeros((n_humans,)), inplace=False)
 # Static obstacles - example adding some padding edges as dimensions should be equal for the static_obstacles array but obstacles may have different number of edges and could be dfferentiated for each human (for optimization)
 static_obstacles = jnp.array([
     [[[-0.1,0.5],[0.1,0.5]],[[0.1,0.5],[0.1,3]],[[0.1,3],[-0.1,3]],[[-0.1,3],[-0.1,0.5]]],
@@ -128,9 +130,9 @@ humans_goal = jnp.array(humans_goal)
 
 # Dummy step - Warm-up (we first compile the JIT functions to avoid counting compilation time later)
 dummy_static_obstacles = jnp.stack([static_obstacles for _ in range(len(humans_state))])
-_ = step.lower(humans_state, humans_goal, humans_parameters, dummy_static_obstacles, dt).compile()
+_ = step.lower(humans_state, humans_visibility, humans_goal, humans_parameters, dummy_static_obstacles, dt).compile()
 test_obstacles = filter_obstacles(humans_state, new_static_obstacles, static_obstacles_per_cell, grid_coords, grid_cell_size)
-_ = step.lower(humans_state, humans_goal, humans_parameters, test_obstacles, dt).compile()
+_ = step.lower(humans_state, humans_visibility, humans_goal, humans_parameters, test_obstacles, dt).compile()
 print(f"\nAvailable devices: {jax.devices()}\n")
 
 # # Profile step function
@@ -138,7 +140,7 @@ print(f"\nAvailable devices: {jax.devices()}\n")
 #     os.makedirs(os.path.join(os.path.dirname(__file__),".perfetto_traces"))
 # with jax.profiler.trace(os.path.join(os.path.dirname(__file__),".perfetto_traces"), create_perfetto_link=True):
 #   # Run the operations to be profiled
-#   test = step(humans_state, humans_goal, humans_parameters, dummy_static_obstacles, dt)
+#   test = step(humans_state, humans_visibility, humans_goal, humans_parameters, dummy_static_obstacles, dt)
 #   test.block_until_ready()
 
 # Prepare simulation data
@@ -151,7 +153,7 @@ start_time = time.time()
 for _ in range(n_simulations):
     humans_state = jnp.copy(initial_humans_state)
     for _ in range(steps):
-        humans_state = step(humans_state, humans_goal, humans_parameters, dummy_static_obstacles, dt)
+        humans_state = step(humans_state, humans_visibility, humans_goal, humans_parameters, dummy_static_obstacles, dt)
         humans_state.block_until_ready() # Wait for the computation to finish
 end_time = time.time()
 print("Simulations done! Average execution time per simulation: ", (end_time - start_time)/n_simulations)
@@ -164,7 +166,7 @@ for _ in range(n_simulations):
     humans_state = jnp.copy(initial_humans_state)
     for _ in range(steps):
         filtered_static_obstacles = filter_obstacles(humans_state, new_static_obstacles, static_obstacles_per_cell, grid_coords, grid_cell_size)
-        humans_state = step(humans_state, humans_goal, humans_parameters, filtered_static_obstacles, dt)
+        humans_state = step(humans_state, humans_visibility, humans_goal, humans_parameters, filtered_static_obstacles, dt)
         humans_state.block_until_ready() # Wait for the computation to finish
 end_time = time.time()
 print("Simulations done! Average execution time per simulation: ", (end_time - start_time)/n_simulations)
@@ -175,7 +177,7 @@ all_states = np.empty((steps+1, len(humans_state), 6), np.float32)
 all_states[0] = humans_state
 for i in range(steps):
     filtered_static_obstacles = filter_obstacles(humans_state, new_static_obstacles, static_obstacles_per_cell, grid_coords, grid_cell_size)
-    humans_state = step(humans_state, humans_goal, humans_parameters, filtered_static_obstacles, dt)
+    humans_state = step(humans_state, humans_visibility, humans_goal, humans_parameters, filtered_static_obstacles, dt)
     all_states[i+1] = humans_state
 end_time = time.time()
 all_states = jax.device_get(all_states) # Transfer data from GPU to CPU for plotting (only at the end)

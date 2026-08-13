@@ -17,6 +17,8 @@ humans_state = np.array([[7.,0.,0.,0.,jnp.pi,0.],
                          [6.8,-0.8,0.,0.,jnp.pi,0.],
                          [6.5,1.5,0.,0.,jnp.pi,0.],
                          [6.5,-1.5,0.,0.,jnp.pi,0.]])
+n_humans = len(humans_state)
+humans_visibility = jnp.fill_diagonal(jnp.ones((n_humans,n_humans)), jnp.zeros((n_humans,)), inplace=False)
 # Static obstacles - example adding some padding edges as dimensions should be equal for the static_obstacles array but obstacles may have different number of edges and could be dfferentiated for each human (for optimization)
 static_obstacles = jnp.array([
     [[[-0.1,0.5],[0.1,0.5]],[[0.1,0.5],[0.1,3]],[[0.1,3],[-0.1,3]],[[-0.1,3],[-0.1,0.5]],[[jnp.nan,jnp.nan],[jnp.nan, jnp.nan]]],
@@ -40,7 +42,7 @@ humans_parameters = get_standard_humans_parameters(len(humans_state))
 humans_goal = jnp.array(humans_goal)
 
 # Dummy step - Warm-up (we first compile the JIT functions to avoid counting compilation time later)
-_ = step(humans_state, humans_goal, humans_parameters, static_obstacles_per_human, dt)
+_ = step(humans_state, humans_visibility, humans_goal, humans_parameters, static_obstacles_per_human, dt)
 
 # Simulation 
 steps = int(end_time/dt)
@@ -50,7 +52,7 @@ start_time = time.time()
 all_states = np.empty((steps+1, len(humans_state), 6), np.float32)
 all_states[0] = humans_state
 for i in range(steps):
-    humans_state = step(humans_state, humans_goal, humans_parameters, static_obstacles_per_human, dt)
+    humans_state = step(humans_state, humans_visibility, humans_goal, humans_parameters, static_obstacles_per_human, dt)
     all_states[i+1] = humans_state
 end_time = time.time()
 print("Simulation done! Computation time: ", end_time - start_time)

@@ -92,13 +92,14 @@ def compute_obstacle_closest_point(reference_point:jnp.ndarray, obstacle:jnp.nda
 vectorized_compute_obstacle_closest_point = vmap(compute_obstacle_closest_point, in_axes=(None, 0))
 
 @jit
-def pairwise_social_force(human_state:jnp.ndarray, other_human_state:jnp.ndarray, parameters:jnp.ndarray, other_human_parameters:jnp.ndarray):
+def pairwise_social_force(human_state:jnp.ndarray, other_human_state:jnp.ndarray, other_human_visibility:jnp.ndarray, parameters:jnp.ndarray, other_human_parameters:jnp.ndarray):
     """
     This function computes the social force between a pair of humans
 
     args:
     - human_state: shape is (6,) in the form (px, py, bvx, bvy, theta, omega)
-    - other_humans_state: shape is (6,) in the form (px, py, bvx, bvy, theta, omega)
+    - other_human_state: shape is (6,) in the form (px, py, bvx, bvy, theta, omega)
+    - other_human_visibility (1,) bool inficating wether the other humans is seen (thus repulsed)
     - parameters: shape is (19,) in the form (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, k0, kd, alpha, k_lambda, safety_space)
     - other_humans_parameters: shape is (19,) in the form (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, k0, kd, alpha, k_lambda, safety_space)
 
@@ -119,12 +120,12 @@ def pairwise_social_force(human_state:jnp.ndarray, other_human_state:jnp.ndarray
         pairwise_social_force = (parameters[4] * jnp.exp(real_dist / parameters[6]) + parameters[12] * jnp.max(jnp.array([0, real_dist]))) * nij + (parameters[8] * jnp.exp(real_dist / parameters[10]) + parameters[13] * jnp.max(jnp.array([0, real_dist])) * delta_vij) * tij
         return pairwise_social_force
     pairwise_social_force = lax.cond(
-        jnp.all(human_state == other_human_state), # In case the human is the same as the other human, social force should not be computed
-        lambda _: jnp.zeros((2,)),
+        other_human_visibility,
         lambda _: compute_social_force(human_state, other_human_state, parameters, other_human_parameters),
+        lambda _: jnp.zeros((2,)),
         None)
     return pairwise_social_force
-vectorized_pairwise_social_force = vmap(pairwise_social_force, in_axes=(None, 0, None, 0))
+vectorized_pairwise_social_force = vmap(pairwise_social_force, in_axes=(None, 0, 0, None, 0))
 
 @jit
 def compute_obstacle_force(human_state:jnp.ndarray, obstacle:jnp.ndarray, parameters:jnp.ndarray):
@@ -159,7 +160,7 @@ def compute_obstacle_force(human_state:jnp.ndarray, obstacle:jnp.ndarray, parame
 vectorized_compute_obstacle_force = vmap(compute_obstacle_force, in_axes=(None, 0, None))
 
 @partial(jit, static_argnames=("dt"))
-def single_update(idx:int, humans_state:jnp.ndarray, human_goal:jnp.ndarray, parameters:jnp.ndarray, obstacles:jnp.ndarray, dt:float) -> jnp.ndarray:
+def single_update(idx:int, humans_state:jnp.ndarray, humans_visibility:jnp.ndarray, human_goal:jnp.ndarray, parameters:jnp.ndarray, obstacles:jnp.ndarray, dt:float) -> jnp.ndarray:
     """
     This functions makes a step in time (of length dt) for a single human using the Headed Social Force Model (HSFM) with 
     global force guidance for torque and sliding component on the repulsive forces.
@@ -167,6 +168,7 @@ def single_update(idx:int, humans_state:jnp.ndarray, human_goal:jnp.ndarray, par
     args:
     - idx: human index in the state, goal and parameter vectors
     - humans_state: shape is (n_humans, 6) in the form is (px, py, bvx, bvy, theta, omega)
+    - humans_visibility: shape is (n_humans) indicating if human i can be seen (thus repulsed)
     - humans_goal: shape is (2,) in the form (gx, gy)
     - parameters: shape is (n_humans, 19) in the form (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, ko, kd, alpha, k_lambda, safety_space)
     - obstacles: shape is (n_obstacles, n_edges, 2, 2) where each obs contains one of its edges (min. 3 edges) and each edge includes its two vertices (p1, p2) composed by two coordinates (x, y)
@@ -196,7 +198,7 @@ def single_update(idx:int, humans_state:jnp.ndarray, human_goal:jnp.ndarray, par
     #         lambda acc: acc, 
     #         acc), 
     #     jnp.zeros((2,)))
-    social_force = jnp.sum(vectorized_pairwise_social_force(self_state, humans_state, self_parameters, parameters), axis=0)
+    social_force = jnp.sum(vectorized_pairwise_social_force(self_state, humans_state, humans_visibility, self_parameters, parameters), axis=0)
     # Obstacle force computation
     closest_points = vectorized_compute_obstacle_closest_point(self_state[:2], obstacles)
     num_real_obstacles = jnp.sum(~jnp.isnan(closest_points[:,0]))
@@ -248,16 +250,17 @@ def single_update(idx:int, humans_state:jnp.ndarray, human_goal:jnp.ndarray, par
     # debug.print("jax.debug.print(global_force) -> {x}", x=global_force)
     # debug.print("jax.debug.print(updated_human_state) -> {x}", x=updated_human_state)
     return updated_human_state
-vectorized_single_update = vmap(single_update, in_axes=(0, None, 0, None, 0, None))
+vectorized_single_update = vmap(single_update, in_axes=(0, None, 0, 0, None, 0, None))
 
 @partial(jit, static_argnames=("dt"))
-def step(humans_state:jnp.ndarray, humans_goal:jnp.ndarray, parameters:jnp.ndarray, obstacles:jnp.ndarray, dt:float) -> jnp.ndarray:
+def step(humans_state:jnp.ndarray, humans_visibility:jnp.ndarray, humans_goal:jnp.ndarray, parameters:jnp.ndarray, obstacles:jnp.ndarray, dt:float) -> jnp.ndarray:
     """
     This functions makes a step in time (of length dt) for the humans' state using the Headed Social Force Model (HSFM) with 
     global force guidance for torque and sliding component on the repulsive forces.
 
     args:
     - humans_state: shape is (n_humans, 6) where each row is (px, py, bvx, bvy, theta, omega)
+    - humans_visibility: shape is (n_humans, n_humans) where each element (i,j) is a bool indicating if human i can see (and thus repulse) human j
     - humans_goal: shape is (n_humans, 2) where each row is (gx, gy)
     - parameters: shape is (n_humans, 19) where each row is (radius, mass, v_max, tau, Ai, Aw, Bi, Bw, Ci, Cw, Di, Dw, k1, k2, ko, kd, alpha, k_lambda, safety_space)
     - obstacles: shape is (n_humans, n_obstacles, n_edges, 2, 2) where each human can be assigned a different set of obstacles. Each obs contains one of its edges (min. 3 edges) and each edge includes its two vertices (p1, p2) composed by two coordinates (x, y)
@@ -266,5 +269,5 @@ def step(humans_state:jnp.ndarray, humans_goal:jnp.ndarray, parameters:jnp.ndarr
     output:
     - updated_humans_state: shape is (n_humans, 6) where each row is (px, py, bvx, bvy, theta, omega)
     """
-    updated_humans_state = vectorized_single_update(jnp.arange(len(humans_state)), humans_state, humans_goal, parameters, obstacles, dt)
+    updated_humans_state = vectorized_single_update(jnp.arange(len(humans_state)), humans_state, humans_visibility, humans_goal, parameters, obstacles, dt)
     return updated_humans_state

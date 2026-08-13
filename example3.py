@@ -18,6 +18,7 @@ np.random.seed(0) # For reproducibility
 
 # Initial conditions
 humans_state = np.zeros((n_humans, 6))
+humans_visibility = jnp.fill_diagonal(jnp.ones((n_humans,n_humans)), jnp.zeros((n_humans,)), inplace=False)
 humans_goal = np.zeros((n_humans, 2))
 humans_pos = []
 for i in range(n_humans):
@@ -56,7 +57,7 @@ static_obstacles_per_human = jnp.stack([static_obstacles for _ in range(len(huma
 # static_obstacles_per_human = static_obstacles_per_human.at[human_that_traverses_obstacle,:].set(jnp.nan)
 
 # Dummy step - Warm-up (we first compile the JIT functions to avoid counting compilation time later)
-_ = step(humans_state, humans_goal, humans_parameters, static_obstacles_per_human, dt)
+_ = step(humans_state, humans_visibility, humans_goal, humans_parameters, static_obstacles_per_human, dt)
 
 # Simulation 
 steps = int(end_time/dt)
@@ -66,7 +67,7 @@ start_time = time.time()
 all_states = np.empty((steps+1, n_humans, 6), np.float32)
 all_states[0] = humans_state
 for i in range(steps):
-    humans_state = step(humans_state, humans_goal, humans_parameters, static_obstacles_per_human, dt)
+    humans_state = step(humans_state, humans_visibility, humans_goal, humans_parameters, static_obstacles_per_human, dt)
     all_states[i+1] = humans_state
 end_time = time.time()
 print("Simulation done! Computation time: ", end_time - start_time)
